@@ -1859,7 +1859,7 @@ static uint32_t array_type__nelems(struct tag *tag)
 }
 
 static int32_t btf_encoder__add_enum_type(struct btf_encoder *encoder, struct tag *tag,
-					  struct conf_load *conf_load)
+					  const struct cu *cu, struct conf_load *conf_load)
 {
 	struct type *etype = tag__type(tag);
 	struct enumerator *pos;
@@ -1871,6 +1871,11 @@ static int32_t btf_encoder__add_enum_type(struct btf_encoder *encoder, struct ta
 		return type_id;
 
 	type__for_each_enumerator(etype, pos) {
+		if (pos->tag.tag != DW_TAG_enumerator) {
+			fprintf(stderr, "Unexpected DW_TAG_%s <%llx>, skipping it...\n",
+				dwarf_tag_name(tag->tag), tag__orig_id(tag, cu));
+			continue;
+		}
 		name = enumerator__name(pos);
 		if (btf_encoder__add_enum_val(encoder, name, pos->value, etype, conf_load))
 			return -1;
@@ -1880,7 +1885,7 @@ static int32_t btf_encoder__add_enum_type(struct btf_encoder *encoder, struct ta
 }
 
 static int btf_encoder__encode_tag(struct btf_encoder *encoder, struct tag *tag,
-				   struct conf_load *conf_load)
+				   const struct cu *cu, struct conf_load *conf_load)
 {
 	/* single out type 0 as it represents special type "void" */
 	uint32_t ref_type_id = tag->type == 0 ? 0 : encoder->type_id_off + tag->type;
@@ -1920,7 +1925,7 @@ static int btf_encoder__encode_tag(struct btf_encoder *encoder, struct tag *tag,
 		encoder->need_index_type = true;
 		return btf_encoder__add_array(encoder, ref_type_id, encoder->array_index_id, array_type__nelems(tag));
 	case DW_TAG_enumeration_type:
-		return btf_encoder__add_enum_type(encoder, tag, conf_load);
+		return btf_encoder__add_enum_type(encoder, tag, cu, conf_load);
 	case DW_TAG_subroutine_type:
 		return btf_encoder__add_func_proto_for_ftype(encoder, tag__ftype(tag));
         case DW_TAG_unspecified_type:
@@ -2979,7 +2984,7 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 	}
 
 	cu__for_each_type(cu, core_id, pos) {
-		btf_type_id = btf_encoder__encode_tag(encoder, pos, conf_load);
+		btf_type_id = btf_encoder__encode_tag(encoder, pos, cu, conf_load);
 
 		if (btf_type_id == 0) {
 			++skipped_types;

@@ -142,7 +142,7 @@ static int subroutine_type__encode(struct tag *tag, uint32_t core_id, struct ctf
 	return 0;
 }
 
-static int enumeration_type__encode(struct tag *tag, uint32_t core_id, struct ctf *ctf)
+static int enumeration_type__encode(struct tag *tag, const struct cu *cu, uint32_t core_id, struct ctf *ctf)
 {
 	struct type *etype = tag__type(tag);
 	int64_t position;
@@ -154,13 +154,19 @@ static int enumeration_type__encode(struct tag *tag, uint32_t core_id, struct ct
 		return -1;
 
 	struct enumerator *pos;
-	type__for_each_enumerator(etype, pos)
+	type__for_each_enumerator(etype, pos) {
+		if (pos->tag.tag != DW_TAG_enumerator) {
+			fprintf(stderr, "Unexpected DW_TAG_%s <%llx>, skipping it...\n",
+				dwarf_tag_name(tag->tag), tag__orig_id(tag, cu));
+			continue;
+		}
 		ctf__add_enumerator(ctf, pos->name, pos->value, &position);
+	}
 
 	return 0;
 }
 
-static void tag__encode_ctf(struct tag *tag, uint32_t core_id, struct ctf *ctf)
+static void tag__encode_ctf(struct tag *tag, const struct cu *cu, uint32_t core_id, struct ctf *ctf)
 {
 	switch (tag->tag) {
 	case DW_TAG_base_type:
@@ -190,7 +196,7 @@ static void tag__encode_ctf(struct tag *tag, uint32_t core_id, struct ctf *ctf)
 		subroutine_type__encode(tag, core_id, ctf);
 		break;
 	case DW_TAG_enumeration_type:
-		enumeration_type__encode(tag, core_id, ctf);
+		enumeration_type__encode(tag, cu, core_id, ctf);
 		break;
 	}
 }
@@ -253,7 +259,7 @@ int cu__encode_ctf(struct cu *cu, int verbose)
 	uint32_t id;
 	struct tag *pos;
 	cu__for_each_type(cu, id, pos)
-		tag__encode_ctf(pos, id, ctf);
+		tag__encode_ctf(pos, cu, id, ctf);
 
 	struct hlist_head hash_addr[HASHADDR__SIZE];
 
