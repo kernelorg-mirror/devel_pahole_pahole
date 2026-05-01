@@ -495,7 +495,7 @@ size_t enumeration__fprintf(const struct tag *tag, const struct cu *cu,
 
 		switch (pos->tag.tag) {
 		case DW_TAG_subprogram:
-			function__fprintf(&pos->tag, cu, conf, fp);
+			printed += function__fprintf(&pos->tag, cu, conf, fp);
 			break;
 		case DW_TAG_enumerator:
 			printed += fprintf(fp, "%-*s = ", max_entry_name_len, enumerator__name(pos));
