@@ -506,8 +506,8 @@ size_t enumeration__fprintf(const struct tag *tag, const struct cu *cu,
 						   (unsigned long long)pos->value);
 			break;
 		default:
-			printed += fprintf(fp, "/* Unexpected %s <%llx> */\n", dwarf_tag_name(tag->tag),
-					   tag__orig_id(tag, cu));
+			printed += fprintf(fp, "/* Unexpected %s <%llx> */\n", dwarf_tag_name(pos->tag.tag),
+					   tag__orig_id(&pos->tag, cu));
 			continue;
 		}
 		printed += fprintf(fp, ",\n");

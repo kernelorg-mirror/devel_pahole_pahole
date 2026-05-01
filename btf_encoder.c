@@ -1873,7 +1873,7 @@ static int32_t btf_encoder__add_enum_type(struct btf_encoder *encoder, struct ta
 	type__for_each_enumerator(etype, pos) {
 		if (pos->tag.tag != DW_TAG_enumerator) {
 			fprintf(stderr, "Unexpected DW_TAG_%s <%llx>, skipping it...\n",
-				dwarf_tag_name(tag->tag), tag__orig_id(tag, cu));
+				dwarf_tag_name(pos->tag.tag), tag__orig_id(&pos->tag, cu));
 			continue;
 		}
 		name = enumerator__name(pos);
