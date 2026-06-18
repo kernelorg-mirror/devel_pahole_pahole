@@ -155,12 +155,17 @@ static int enumeration_type__encode(struct tag *tag, const struct cu *cu, uint32
 
 	struct enumerator *pos;
 	type__for_each_enumerator(etype, pos) {
-		if (pos->tag.tag != DW_TAG_enumerator) {
-			fprintf(stderr, "Unexpected DW_TAG_%s <%llx>, skipping it...\n",
-				dwarf_tag_name(pos->tag.tag), tag__orig_id(&pos->tag, cu));
-			continue;
+		switch (pos->tag.tag) {
+		case DW_TAG_enumerator:
+			ctf__add_enumerator(ctf, pos->name, pos->value, &position);
+			break;
+		case DW_TAG_subprogram:
+			break;
+		default:
+			fprintf(stderr, "CTF: unexpected DW_TAG_%s in enumeration '%s', skipping\n",
+				dwarf_tag_name(pos->tag.tag), type__name(etype) ?: "(anonymous)");
+			break;
 		}
-		ctf__add_enumerator(ctf, pos->name, pos->value, &position);
 	}
 
 	return 0;

@@ -1871,14 +1871,22 @@ static int32_t btf_encoder__add_enum_type(struct btf_encoder *encoder, struct ta
 		return type_id;
 
 	type__for_each_enumerator(etype, pos) {
-		if (pos->tag.tag != DW_TAG_enumerator) {
-			fprintf(stderr, "Unexpected DW_TAG_%s <%llx>, skipping it...\n",
-				dwarf_tag_name(pos->tag.tag), tag__orig_id(&pos->tag, cu));
-			continue;
+		switch (pos->tag.tag) {
+		case DW_TAG_enumerator:
+			name = enumerator__name(pos);
+			if (btf_encoder__add_enum_val(encoder, name, pos->value, etype, conf_load))
+				return -1;
+			break;
+		case DW_TAG_subprogram:
+			if (encoder->verbose)
+				fprintf(stderr, "BTF: DW_TAG_subprogram in enumeration '%s' not supported, skipping\n",
+					type__name(etype) ?: "(anonymous)");
+			break;
+		default:
+			fprintf(stderr, "BTF: unexpected DW_TAG_%s in enumeration '%s', skipping\n",
+				dwarf_tag_name(pos->tag.tag), type__name(etype) ?: "(anonymous)");
+			break;
 		}
-		name = enumerator__name(pos);
-		if (btf_encoder__add_enum_val(encoder, name, pos->value, etype, conf_load))
-			return -1;
 	}
 
 	return type_id;
