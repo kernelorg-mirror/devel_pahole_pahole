@@ -1816,6 +1816,11 @@ static int tag__check_id_drift(struct btf_encoder *encoder, const struct tag *ta
 	return 0;
 }
 
+static bool type__has_variant_parts(const struct type *type)
+{
+	return !list_empty(&type->variant_parts);
+}
+
 static int32_t btf_encoder__add_struct_type(struct btf_encoder *encoder, struct tag *tag)
 {
 	struct type *type = tag__type(tag);
@@ -1824,8 +1829,18 @@ static int32_t btf_encoder__add_struct_type(struct btf_encoder *encoder, struct 
 	int32_t type_id;
 	uint8_t kind;
 
-	kind = (tag->tag == DW_TAG_union_type) ?
-		BTF_KIND_UNION : BTF_KIND_STRUCT;
+	/*
+	 * Rust discriminated unions (enums) are represented in DWARF as
+	 * DW_TAG_structure_type with DW_TAG_variant_part children.
+	 * If the struct has only variant parts and no regular data members,
+	 * encode it as a BTF union since the variants overlap at offset 0.
+	 */
+	if (tag->tag == DW_TAG_union_type)
+		kind = BTF_KIND_UNION;
+	else if (type__has_variant_parts(type) && type->nr_members == 0)
+		kind = BTF_KIND_UNION;
+	else
+		kind = BTF_KIND_STRUCT;
 
 	type_id = btf_encoder__add_struct(encoder, kind, name, type->size);
 	if (type_id < 0)
@@ -1841,6 +1856,24 @@ static int32_t btf_encoder__add_struct_type(struct btf_encoder *encoder, struct 
 		if (btf_encoder__add_field(encoder, name, encoder->type_id_off + pos->tag.type,
 					   pos->bitfield_size, pos->bit_offset))
 			return -1;
+	}
+
+	if (type__has_variant_parts(type) && kind == BTF_KIND_UNION) {
+		struct variant_part *vpart;
+
+		type__for_each_variant_part(type, vpart) {
+			struct variant *variant;
+
+			variant_part__for_each_variant(vpart, variant) {
+				if (variant->tag.type == 0)
+					continue;
+
+				uint32_t ref_type_id = encoder->type_id_off + variant->tag.type;
+
+				if (btf_encoder__add_field(encoder, variant->name, ref_type_id, 0, 0))
+					return -1;
+			}
+		}
 	}
 
 	return type_id;
