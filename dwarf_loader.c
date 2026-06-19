@@ -1219,6 +1219,32 @@ static struct template_parameter_pack *template_parameter_pack__new(Dwarf_Die *d
 	return pack;
 }
 
+static struct variant *variant__new(Dwarf_Die *die, struct cu *cu, struct conf_load *conf)
+{
+	struct variant *var = tag__alloc(cu, sizeof(*var));
+
+	if (var != NULL) {
+		tag__init(&var->tag, cu, die);
+		var->discr_value = attr_numeric(die, DW_AT_discr_value);
+		var->name = NULL;
+
+		Dwarf_Die child;
+		if (dwarf_child(die, &child) == 0) {
+			do {
+				if (dwarf_tag(&child) == DW_TAG_member) {
+					struct dwarf_tag *dtag = tag__dwarf(&var->tag);
+
+					var->name = attr_string(&child, DW_AT_name, conf);
+					dwarf_tag__set_attr_type(dtag, type, &child, DW_AT_type);
+					break;
+				}
+			} while (dwarf_siblingof(&child, &child) == 0);
+		}
+	}
+
+	return var;
+}
+
 static struct variant_part *variant_part__new(Dwarf_Die *die, struct cu *cu, struct conf_load *conf)
 {
 	struct variant_part *vpart = tag__alloc(cu, sizeof(*vpart));
@@ -1226,6 +1252,20 @@ static struct variant_part *variant_part__new(Dwarf_Die *die, struct cu *cu, str
 	if (vpart != NULL) {
 		tag__init(&vpart->tag, cu, die);
 		INIT_LIST_HEAD(&vpart->variants);
+
+		Dwarf_Die child;
+		if (dwarf_child(die, &child) == 0) {
+			do {
+				if (dwarf_tag(&child) == DW_TAG_variant) {
+					struct variant *var = variant__new(&child, cu, conf);
+					if (var == NULL) {
+						variant_part__delete(vpart, cu);
+						return NULL;
+					}
+					variant_part__add_variant(vpart, var);
+				}
+			} while (dwarf_siblingof(&child, &child) == 0);
+		}
 	}
 
 	return vpart;
@@ -2981,6 +3021,38 @@ check_type:
 next:
 		pos->type = dtype->small_id;
 	}
+
+	if (tag__is_struct(tag) || tag__is_union(tag)) {
+		struct type *type = tag__type(tag);
+		struct variant_part *vpart;
+		struct dwarf_cu *dcu = cu->priv;
+
+		type__for_each_variant_part(type, vpart) {
+			struct variant *variant;
+			struct dwarf_tag *dvpart = tag__dwarf(&vpart->tag);
+
+			if (dvpart->type != 0) {
+				struct dwarf_tag *dtype = dwarf_cu__find_tag_by_ref(dcu, dvpart, type);
+				if (dtype != NULL)
+					vpart->tag.type = dtype->small_id;
+			}
+
+			variant_part__for_each_variant(vpart, variant) {
+				struct dwarf_tag *dvar = tag__dwarf(&variant->tag);
+
+				if (dvar->type == 0)
+					continue;
+
+				struct dwarf_tag *dtype = dwarf_cu__find_type_by_ref(dcu, dvar, type);
+				if (dtype == NULL) {
+					tag__print_type_not_found(&variant->tag);
+					continue;
+				}
+				variant->tag.type = dtype->small_id;
+			}
+		}
+	}
+
 	return 0;
 }
 

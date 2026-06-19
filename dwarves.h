@@ -1029,6 +1029,12 @@ static inline struct formal_parameter_pack *tag__formal_parameter_pack(const str
 
 void formal_parameter_pack__add(struct formal_parameter_pack *pack, struct parameter *param);
 
+struct variant {
+	struct tag	 tag;
+	const char	 *name;
+	uint64_t	 discr_value;
+};
+
 struct variant_part {
 	struct tag	 tag;
 	struct list_head variants;
@@ -1432,10 +1438,28 @@ static inline struct class_member *class_member__next(struct class_member *membe
 #define type__for_each_variant_part_safe_reverse(type, pos, n) \
 	list_for_each_entry_safe_reverse(pos, n, &(type)->variant_parts, tag.node)
 
+/**
+ * type__for_each_variant_part - iterate thru all variant_parts in a type
+ * @type: struct type instance to iterate
+ * @pos: struct variant_part iterator
+ */
+#define type__for_each_variant_part(type, pos) \
+	list_for_each_entry(pos, &(type)->variant_parts, tag.node)
+
 void type__add_member(struct type *type, struct class_member *member);
 void type__add_template_type_param(struct type *type, struct template_type_param *ttparm);
 void type__add_template_value_param(struct type *type, struct template_value_param *tvparam);
 void type__add_variant_part(struct type *type, struct variant_part *vpart);
+void variant_part__delete(struct variant_part *vpart, struct cu *cu);
+void variant_part__add_variant(struct variant_part *vpart, struct variant *var);
+
+/**
+ * variant_part__for_each_variant - iterate thru all variants in a variant_part
+ * @vpart: struct variant_part instance to iterate
+ * @pos: struct variant iterator
+ */
+#define variant_part__for_each_variant(vpart, pos) \
+	list_for_each_entry(pos, &(vpart)->variants, tag.node)
 
 struct class_member *
 	type__find_first_biggest_size_base_type_member(struct type *type,

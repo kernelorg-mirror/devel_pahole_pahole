@@ -1289,10 +1289,17 @@ static void type__delete_class_members(struct type *type, struct cu *cu)
 	}
 }
 
-static void variant_part__delete(struct variant_part *vpart, struct cu *cu)
+void variant_part__delete(struct variant_part *vpart, struct cu *cu)
 {
+	struct variant *pos, *next;
+
 	if (vpart == NULL)
 		return;
+
+	list_for_each_entry_safe(pos, next, &vpart->variants, tag.node) {
+		list_del_init(&pos->tag.node);
+		cu__tag_free(cu, &pos->tag);
+	}
 
 	cu__tag_free(cu, &vpart->tag);
 }
@@ -1387,6 +1394,11 @@ void type__add_variant_part(struct type *type, struct variant_part *vpart)
 	list_add_tail(&vpart->tag.node, &type->variant_parts);
 }
 
+void variant_part__add_variant(struct variant_part *vpart, struct variant *var)
+{
+	list_add_tail(&var->tag.node, &vpart->variants);
+}
+
 struct class_member *type__last_member(struct type *type)
 {
 	struct class_member *pos;
@@ -1411,6 +1423,34 @@ static int type__clone_members(struct type *type, const struct type *from, struc
 		if (clone == NULL)
 			return -1;
 		type__add_member(type, clone);
+	}
+
+	struct variant_part *vpart;
+
+	type__for_each_variant_part(from, vpart) {
+		struct variant_part *vp_clone = cu__tag_alloc(cu, sizeof(*vp_clone));
+
+		if (vp_clone == NULL)
+			return -1;
+
+		memcpy(vp_clone, vpart, sizeof(*vp_clone));
+		INIT_LIST_HEAD(&vp_clone->variants);
+
+		struct variant *variant;
+
+		variant_part__for_each_variant(vpart, variant) {
+			struct variant *v_clone = cu__tag_alloc(cu, sizeof(*v_clone));
+
+			if (v_clone == NULL) {
+				variant_part__delete(vp_clone, cu);
+				return -1;
+			}
+
+			memcpy(v_clone, variant, sizeof(*v_clone));
+			variant_part__add_variant(vp_clone, v_clone);
+		}
+
+		type__add_variant_part(type, vp_clone);
 	}
 
 	return 0;
