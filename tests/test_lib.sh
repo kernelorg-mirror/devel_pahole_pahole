@@ -176,7 +176,9 @@ test_skip()
 
 cleanup()
 {
-	rm ${outdir}/*
-	rmdir $outdir
+	if [ -n "$outdir" ] && [ -d "$outdir" ]; then
+		rm ${outdir}/*
+		rmdir $outdir
+	fi
 	return 0
 }
