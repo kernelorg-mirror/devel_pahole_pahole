@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <dirent.h>
 #include <dwarf.h>
+#include <endian.h>
 #include <elfutils/libdwfl.h>
 #include <elfutils/version.h>
 #include <errno.h>
@@ -351,6 +352,19 @@ static uint64_t attr_numeric(Dwarf_Die *die, uint32_t name)
 		bool value;
 		if (dwarf_formflag(&attr, &value) == 0)
 			return value;
+	}
+		break;
+	case DW_FORM_block1:
+	case DW_FORM_block2:
+	case DW_FORM_block4:
+	case DW_FORM_block: {
+		Dwarf_Block block;
+		if (dwarf_formblock(&attr, &block) == 0 && block.length > 0) {
+			uint64_t value = 0;
+			size_t n = block.length > sizeof(value) ? sizeof(value) : block.length;
+			memcpy(&value, block.data, n);
+			return le64toh(value);
+		}
 	}
 		break;
 	default:
