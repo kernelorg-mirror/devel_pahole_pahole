@@ -10,7 +10,7 @@
 # that the automatic detection produces the same output as explicitly
 # forcing CU merging.
 
-. ./test_lib.sh
+. "$(dirname "$0")/test_lib.sh"
 
 outdir=$(make_tmpdir)
 trap cleanup EXIT

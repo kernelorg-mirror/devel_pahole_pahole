@@ -8,7 +8,7 @@
 # also should have been.
 #
 
-source test_lib.sh
+source "$(dirname "$0")/test_lib.sh"
 
 vmlinux=$(get_vmlinux $1)
 if [ $? -ne 0 ] ; then
