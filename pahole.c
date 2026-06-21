@@ -2596,9 +2596,9 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 		return -ENOMEM;
 
 	if (type__instance_read_once(header, input) < 0) {
-		int err = --errno;
+		printed = --errno;
 		fprintf(stderr, "pahole: --header (%s) type couldn't be read\n", conf.header_type);
-		return err;
+		goto out;
 	}
 
 	if (conf.range || prototype->range) {
@@ -2610,14 +2610,16 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 				fprintf(stderr, "pahole: --header_type=%s not found\n", conf.header_type);
 			else
 				fprintf(stderr, "pahole: range (%s) requires --header\n", range);
-			return -ESRCH;
+			printed = -ESRCH;
+			goto out;
 		}
 
 		char *member_name = NULL;
 
 		if (asprintf(&member_name, "%s.%s", range, "offset") == -1) {
 			fprintf(stderr, "pahole: not enough memory for range=%s\n", range);
-			return -ENOMEM;
+			printed = -ENOMEM;
+			goto out;
 		}
 
 		int64_t value = type_instance__int_value(header, member_name);
@@ -2626,7 +2628,8 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 			fprintf(stderr, "pahole: couldn't read the '%s' member of '%s' for evaluating range=%s\n",
 				member_name, conf.header_type, range);
 			free(member_name);
-			return -ESRCH;
+			printed = -ESRCH;
+			goto out;
 		}
 
 		seek_bytes = value;
@@ -2640,7 +2643,8 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 		if (seek_bytes < total_read_bytes) {
 			fprintf(stderr, "pahole: can't go back in input, already read %" PRIu64 " bytes, can't go to position %#" PRIx64 "\n",
 					total_read_bytes, seek_bytes);
-			return -ENOMEM;
+			printed = -ENOMEM;
+			goto out;
 		}
 
 		if (global_verbose) {
@@ -2652,7 +2656,8 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 
 		if (asprintf(&member_name, "%s.%s", range, "size") == -1) {
 			fprintf(stderr, "pahole: not enough memory for range=%s\n", range);
-			return -ENOMEM;
+			printed = -ENOMEM;
+			goto out;
 		}
 
 		value = type_instance__int_value(header, member_name);
@@ -2661,7 +2666,8 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 			fprintf(stderr, "pahole: couldn't read the '%s' member of '%s' for evaluating range=%s\n",
 				member_name, conf.header_type, range);
 			free(member_name);
-			return -ESRCH;
+			printed = -ESRCH;
+			goto out;
 		}
 
 		size_bytes = value;
@@ -2673,9 +2679,9 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 		free(member_name);
 
 		if (pipe_seek(input, seek_bytes) < 0) {
-			int err = --errno;
+			printed = --errno;
 			fprintf(stderr, "Couldn't --seek_bytes %s (%" PRIu64 "\n", conf.seek_bytes, seek_bytes);
-			return err;
+			goto out;
 		}
 
 		goto do_read;
@@ -2688,7 +2694,8 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 			if (!header) {
 				fprintf(stderr, "pahole: --seek_bytes (%s) makes reference to --header but it wasn't specified\n",
 					conf.seek_bytes);
-				return -ESRCH;
+				printed = -ESRCH;
+				goto out;
 			}
 
 			const char *member_name = conf.seek_bytes + sizeof("$header.") - 1;
@@ -2696,7 +2703,8 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 			if (value < 0) {
 				fprintf(stderr, "pahole: couldn't read the '%s' member of '%s' for evaluating --seek_bytes=%s\n",
 					member_name, conf.header_type, conf.seek_bytes);
-				return -ESRCH;
+				printed = -ESRCH;
+				goto out;
 			}
 
 			seek_bytes = value;
@@ -2708,7 +2716,8 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 			if (seek_bytes < header->type->size) {
 				fprintf(stderr, "pahole: seek bytes evaluated from --seek_bytes=%s is less than the header type size\n",
 					conf.seek_bytes);
-				return -EINVAL;
+				printed = -EINVAL;
+				goto out;
 			}
 		} else  {
 			seek_bytes = strtol(conf.seek_bytes, NULL, 0);
@@ -2721,9 +2730,9 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 		}
 
 		if (pipe_seek(input, seek_bytes) < 0) {
-			int err = --errno;
+			printed = --errno;
 			fprintf(stderr, "Couldn't --seek_bytes %s (%" PRIu64 "\n", conf.seek_bytes, seek_bytes);
-			return err;
+			goto out;
 		}
 	}
 
@@ -2732,7 +2741,8 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 			if (!header) {
 				fprintf(stderr, "pahole: --size_bytes (%s) makes reference to --header but it wasn't specified\n",
 					conf.size_bytes);
-				return -ESRCH;
+				printed = -ESRCH;
+				goto out;
 			}
 
 			const char *member_name = conf.size_bytes + sizeof("$header.") - 1;
@@ -2740,7 +2750,8 @@ static int prototype__stdio_fprintf_value(struct prototype *prototype, struct ty
 			if (value < 0) {
 				fprintf(stderr, "pahole: couldn't read the '%s' member of '%s' for evaluating --size_bytes=%s\n",
 					member_name, conf.header_type, conf.size_bytes);
-				return -ESRCH;
+				printed = -ESRCH;
+				goto out;
 			}
 
 			size_bytes = value;
