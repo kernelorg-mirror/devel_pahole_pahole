@@ -400,6 +400,25 @@ bool languages__cu_filtered(struct languages *languages, struct cu *cu, bool ver
 		else
 
 /**
+ * cu__for_each_type_dense - iterate types, tracking NULL holes
+ * @cu: struct cu instance to iterate
+ * @id: type_id_t raw table index
+ * @pos: struct tag iterator
+ * @nulls: uint32_t counter incremented for each NULL entry
+ *
+ * Like cu__for_each_type but counts NULL entries in @nulls so
+ * callers that need a dense (hole-free) index can compute it
+ * as (id - nulls).  Use this when the table index must map to
+ * a sequential output ID (e.g. BTF/CTF encoding).
+ */
+#define cu__for_each_type_dense(cu, id, pos, nulls)		\
+	for (id = 1, nulls = 0;					\
+	     id < cu->types_table.nr_entries; ++id)		\
+		if (!(pos = cu->types_table.entries[id]))	\
+			++nulls;				\
+		else
+
+/**
  * cu__for_each_struct - iterate thru all the struct tags
  * @cu: struct cu instance to iterate
  * @pos: struct class iterator
@@ -957,6 +976,7 @@ struct parameter {
 	int loc_reg;
 	uint16_t type_byte_size;
 	uint8_t true_sig_type_from_types:1;
+	uint8_t true_sig_type_from_alt:1;
 	uint8_t has_const_value:1;
 	uint8_t loc_const_value:1;
 	uint8_t loc_stack:1;

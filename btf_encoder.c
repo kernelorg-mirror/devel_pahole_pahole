@@ -152,6 +152,7 @@ struct btf_encoder {
 			  encode_attributes,
 			  true_signature;
 	uint32_t	  array_index_id;
+	uint32_t	  *type_id_null_adj;
 	struct elf_secinfo *secinfo;
 	size_t             seccnt;
 	int                encode_vars;
@@ -742,7 +743,10 @@ static int32_t btf_encoder__tag_type(struct btf_encoder *encoder, uint32_t tag_t
 	if (tag_type == 0)
 		return 0;
 
-	return encoder->type_id_off + tag_type;
+	/* Adjust for NULL holes left by dwz alt PU pruning */
+	uint32_t adj = encoder->type_id_null_adj ? encoder->type_id_null_adj[tag_type] : 0;
+
+	return encoder->type_id_off + tag_type - adj;
 }
 
 static int btf__tag_bpf_arena_ptr(struct btf *btf, int ptr_id)
@@ -3007,6 +3011,7 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 {
 	struct llvm_annotation *annot;
 	int btf_type_id, tag_type_id, skipped_types = 0;
+	uint32_t null_types = 0;
 	struct elf_functions *funcs;
 	uint32_t core_id;
 	struct function *fn;
@@ -3023,6 +3028,46 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 
 	encoder->type_id_off = btf__type_cnt(encoder->btf) - 1;
 
+	/*
+	 * NULL holes in types_table occur only with dwz alternate debug
+	 * files: dwarf_cu__prune_unreferenced_alt_pus() NULLs entries for
+	 * imported partial unit types not referenced by this CU.  This
+	 * does not happen in the common kernel BTF case.
+	 *
+	 * Build a prefix-sum so btf_encoder__tag_type() can translate
+	 * types_table indices (small_ids) to dense BTF type IDs.
+	 */
+	encoder->type_id_null_adj = NULL;
+	if (cu->types_table.nr_entries > 0) {
+		uint32_t nr = cu->types_table.nr_entries;
+		uint32_t *adj = calloc(nr + 1, sizeof(*adj));
+
+		if (adj) {
+			uint32_t nulls = 0;
+
+			for (uint32_t i = 1; i < nr; i++) {
+				if (cu->types_table.entries[i] == NULL)
+					nulls++;
+				adj[i] = nulls;
+			}
+			adj[nr] = nulls;
+			if (nulls > 0)
+				encoder->type_id_null_adj = adj;
+			else
+				free(adj);
+		} else {
+			/* Without the adjustment table, NULL holes would cause
+			 * wrong BTF type IDs — fail rather than silently corrupt */
+			for (uint32_t i = 1; i < nr; i++) {
+				if (cu->types_table.entries[i] == NULL) {
+					fprintf(stderr, "btf_encoder: out of memory for type_id_null_adj (%u entries)\n", nr);
+					err = -ENOMEM;
+					goto out;
+				}
+			}
+		}
+	}
+
 	if (!encoder->has_index_type) {
 		/* cu__find_base_type_by_name() takes "type_id_t *id" */
 		type_id_t id;
@@ -3030,12 +3075,15 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 			encoder->has_index_type = true;
 			encoder->array_index_id = btf_encoder__tag_type(encoder, id);
 		} else {
+			uint32_t nr = cu->types_table.nr_entries;
+			uint32_t adj = encoder->type_id_null_adj ? encoder->type_id_null_adj[nr] : 0;
+
 			encoder->has_index_type = false;
-			encoder->array_index_id = encoder->type_id_off + cu->types_table.nr_entries;
+			encoder->array_index_id = encoder->type_id_off + nr - adj;
 		}
 	}
 
-	cu__for_each_type(cu, core_id, pos) {
+	cu__for_each_type_dense(cu, core_id, pos, null_types) {
 		btf_type_id = btf_encoder__encode_tag(encoder, pos, cu, conf_load);
 
 		if (btf_type_id == 0) {
@@ -3044,7 +3092,7 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 		}
 
 		if (btf_type_id < 0 ||
-		    tag__check_id_drift(encoder, pos, core_id, btf_type_id + skipped_types)) {
+		    tag__check_id_drift(encoder, pos, core_id, btf_type_id + skipped_types + null_types)) {
 			err = -1;
 			goto out;
 		}
@@ -3060,7 +3108,8 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 		encoder->has_index_type = true;
 	}
 
-	cu__for_each_type(cu, core_id, pos) {
+	null_types = 0;
+	cu__for_each_type_dense(cu, core_id, pos, null_types) {
 		struct namespace *ns;
 		const char *tag_name;
 
@@ -3078,7 +3127,7 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 			continue;
 		}
 
-		btf_type_id = encoder->type_id_off + core_id;
+		btf_type_id = encoder->type_id_off + core_id - null_types;
 		ns = tag__namespace(pos);
 		list_for_each_entry(annot, &ns->annots, node) {
 			tag_type_id = btf_encoder__add_decl_tag(encoder, annot->value, btf_type_id, annot->component_idx);
@@ -3140,6 +3189,13 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 	if (!err)
 		err = LSK__DELETE;
 out:
+	/*
+	 * Safe to free here: btf_encoder__save_func() stores
+	 * already-translated BTF type IDs, so the deferred
+	 * btf_encoder__add_saved_funcs() path never calls
+	 * btf_encoder__tag_type() after this point.
+	 */
+	zfree(&encoder->type_id_null_adj);
 	encoder->cu = NULL;
 	return err;
 }

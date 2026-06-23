@@ -100,6 +100,16 @@ static struct tag unsupported_tag;
 
 #define cu__tag_not_handled(cu, die) __cu__tag_not_handled(cu, die, __FUNCTION__)
 
+/*
+ * Each DWARF reference attribute can point to one of three offset spaces:
+ *  1. Main file — the default, looked up in dcu->hash_*
+ *  2. .debug_types — DW_FORM_ref_sig8, looked up in dcu->type_unit->hash_*
+ *  3. dwz alt file — DW_FORM_GNU_ref_alt, looked up in dcu->alt->hash_*
+ *
+ * The from_types_section and from_alt bitfields record which space each
+ * reference attribute targets, so the lookup functions go directly to the
+ * right hash table without fallback searches.
+ */
 struct dwarf_tag {
 	struct hlist_node hash_node;
 	Dwarf_Off	 type;
@@ -115,6 +125,12 @@ struct dwarf_tag {
 		bool		 containing_type:1;
 		bool		 specification:1;
 	} from_types_section;
+	struct {
+		bool		 type:1;
+		bool		 abstract_origin:1;
+		bool		 containing_type:1;
+		bool		 specification:1;
+	} from_alt;
 	uint16_t         decl_line;
 	uint32_t         small_id;
 	const char	 *decl_file;
@@ -130,15 +146,26 @@ static inline struct dwarf_tag *tag__dwarf(const struct tag *tag)
 	return ((struct dwarf_tag *)tag) - 1;
 }
 
+struct alt_pu {
+	Dwarf_Off start;	/* first DIE offset in this PU */
+	Dwarf_Off end;		/* first offset past this PU (next CU header) */
+	bool	  hit;		/* referenced by main CUs? */
+};
+
 struct dwarf_cu {
-	struct hlist_head *hash_tags;
-	struct hlist_head *hash_types;
+	struct hlist_head *hash_tags;	/* tags (functions, etc.) keyed by DWARF offset */
+	struct hlist_head *hash_types;	/* types keyed by DWARF offset */
 	struct dwarf_tag *last_type_lookup;
 	struct cu *cu;
-	struct dwarf_cu *type_unit;
-	Dwarf_Off *imported_units;
+	struct dwarf_cu *type_unit;	/* .debug_types offset space */
+	struct dwarf_cu *alt;		/* dwz alt file offset space */
+	Dwarf_Off *imported_units;	/* dedup: visited same-file partial unit offsets */
 	uint32_t  nr_imported_units;
 	uint32_t  allocated_imported_units;
+	struct alt_pu *alt_pus;
+	uint32_t  nr_alt_pus;
+	uint32_t  allocated_alt_pus;
+	bool	  processing_alt;	/* true while processing alt-file DIEs */
 };
 
 static int dwarf_cu__init(struct dwarf_cu *dcu, struct cu *cu)
@@ -167,9 +194,21 @@ static int dwarf_cu__init(struct dwarf_cu *dcu, struct cu *cu)
 		INIT_HLIST_HEAD(&dcu->hash_types[i]);
 	}
 	dcu->type_unit = NULL;
+	dcu->alt = NULL;
 	dcu->imported_units = NULL;
 	dcu->nr_imported_units = 0;
 	dcu->allocated_imported_units = 0;
+	dcu->alt_pus = NULL;
+	dcu->nr_alt_pus = 0;
+	dcu->allocated_alt_pus = 0;
+	/*
+	 * processing_alt is per-merged-CU state, not thread-safe.
+	 * The merged-CU path (cus__merge_and_process_cu) is
+	 * single-threaded; do not parallelize merged loading
+	 * without addressing this and the alt hash routing in
+	 * cu__hash().
+	 */
+	dcu->processing_alt = false;
 	// To avoid a per-lookup check against NULL in dwarf_cu__find_type_by_ref()
 	dcu->last_type_lookup = &sentinel_dtag;
 	return 0;
@@ -194,8 +233,16 @@ static void dwarf_cu__delete(struct cu *cu)
 
 	struct dwarf_cu *dcu = cu->priv;
 
-	free(dcu->imported_units);
-	// dcu->hash_tags & dcu->hash_types are on cu->obstack
+	zfree(&dcu->imported_units);
+	zfree(&dcu->alt_pus);
+	if (dcu->alt) {
+		cu__free(cu, dcu->alt->hash_tags);
+		cu__free(cu, dcu->alt->hash_types);
+		cu__free(cu, dcu->alt);
+		dcu->alt = NULL;
+	}
+	cu__free(cu, dcu->hash_tags);
+	cu__free(cu, dcu->hash_types);
 	cu__free(cu, dcu);
 	cu->priv = NULL;
 }
@@ -237,39 +284,198 @@ static struct dwarf_tag *hashtags__find(const struct hlist_head *hashtable,
 	return NULL;
 }
 
+/*
+ * cu__hash - insert a tag into the appropriate hash table
+ *
+ * Three hash table sets exist per merged CU:
+ *  - dcu->hash_types / hash_tags:  main-file DWARF offsets
+ *  - dcu->alt->hash_types / hash_tags:  dwz alt-file offsets
+ *  - dcu->type_unit->hash_types:  .debug_types offsets
+ *
+ * When dcu->processing_alt is set (i.e. we are processing children of
+ * an alt-file partial unit), tags are hashed into dcu->alt so that
+ * their alt-file offsets don't collide with main-file offsets.
+ */
 static void cu__hash(struct cu *cu, struct tag *tag)
 {
 	struct dwarf_cu *dcu = cu->priv;
+	struct dwarf_cu *target = (dcu->processing_alt && dcu->alt) ? dcu->alt : dcu;
 	struct hlist_head *hashtable = tag__is_tag_type(tag) ?
-							dcu->hash_types :
-							dcu->hash_tags;
+							target->hash_types :
+							target->hash_tags;
 	hashtags__hash(hashtable, tag__dwarf(tag));
 }
 
+/* Binary search for the alt PU whose [start, end) range contains offset.
+ * The array is sorted by .start (built monotonically by dwarf_nextcu)
+ * with non-overlapping ranges. Returns NULL if offset is not in any PU. */
+static struct alt_pu *dwarf_cu__find_alt_pu(struct dwarf_cu *dcu, Dwarf_Off offset)
+{
+	uint32_t lo = 0, hi = dcu->nr_alt_pus;
+
+	while (lo < hi) {
+		uint32_t mid = lo + (hi - lo) / 2;
+
+		if (offset < dcu->alt_pus[mid].start)
+			hi = mid;
+		else if (offset >= dcu->alt_pus[mid].end)
+			lo = mid + 1;
+		else
+			return &dcu->alt_pus[mid];
+	}
+	return NULL;
+}
+
+static bool dwarf_cu__alt_pu_is_hit(struct dwarf_cu *dcu, Dwarf_Off offset)
+{
+	struct alt_pu *pu = dwarf_cu__find_alt_pu(dcu, offset);
+	return pu ? pu->hit : false;
+}
+
+/* True when offset falls inside an alt PU that was not marked as hit —
+ * i.e. it was pruned by dwarf_cu__prune_unreferenced_alt_pus(). */
+static bool dwarf_cu__offset_in_pruned_alt_pu(struct dwarf_cu *dcu, Dwarf_Off offset)
+{
+	struct alt_pu *pu = dwarf_cu__find_alt_pu(dcu, offset);
+	return pu ? !pu->hit : false;
+}
+
+/* After a from_alt lookup miss during recode, check whether the target
+ * offset falls in a PU that was pruned.  This catches dwz invariant
+ * violations where an inter-PU dependency was not expressed via
+ * DW_TAG_imported_unit.
+ *
+ * Works for plain-form refs (ref4 etc.) within the alt file too:
+ * dwarf_tag__set_attr_type ORs processing_alt into from_alt, so
+ * intra-alt refs carry the bit even though their DWARF form is not
+ * DW_FORM_GNU_ref_alt. */
+static void tag__check_pruned_alt_ref(struct dwarf_cu *dcu, Dwarf_Off ref,
+				      bool from_alt)
+{
+	if (!from_alt || dcu == NULL || dcu->nr_alt_pus == 0)
+		return;
+	if (dwarf_cu__offset_in_pruned_alt_pu(dcu, ref))
+		fprintf(stderr,
+			"         reference %#llx is in a pruned dwz alternate partial unit — "
+			"possible dwz invariant violation\n"
+			"         (inter-PU dependency not expressed via DW_TAG_imported_unit)\n",
+			(unsigned long long)ref);
+}
+
+/*
+ * Remove types/functions from dwz alternate partial units that were
+ * never marked as hit.  A PU is marked hit when:
+ *
+ *  (a) a main-file CU references it via DW_FORM_GNU_ref_alt
+ *      (attribute ref or DW_TAG_imported_unit), or
+ *  (b) any other alt PU imports it via DW_TAG_imported_unit —
+ *      regardless of whether that importing PU is itself reachable
+ *      from a main CU, since the pre-processing pass in
+ *      cus__merge_and_process_cu() walks ALL alt PUs with
+ *      hit-marking enabled.
+ *
+ * (b) makes this a conservative over-approximation of "transitively
+ * reachable from main CUs": clusters of PUs that only import each
+ * other survive pruning even if no main CU references the cluster.
+ * Correctness is unaffected — only the amount pruned.  Tightening
+ * this to true main-rooted reachability would require recording
+ * PU→PU import edges during pre-processing and propagating hits
+ * from main-referenced roots before pruning.
+ *
+ * Safety invariant (why pruning can't remove something needed):
+ * dwz expresses inter-PU dependencies via DW_TAG_imported_unit,
+ * not bare DW_FORM_ref_addr.  If dwz violated this, the target PU
+ * could be pruned while still referenced; tag__check_pruned_alt_ref()
+ * detects that at recode time and prints a diagnostic.
+ */
+static void dwarf_cu__prune_unreferenced_alt_pus(struct dwarf_cu *dcu)
+{
+	struct dwarf_cu *alt = dcu->alt;
+	struct cu *cu = dcu->cu;
+
+	if (alt == NULL || dcu->nr_alt_pus == 0)
+		return;
+
+	uint64_t hashtags_size = 1UL << hashtags__bits;
+
+	for (uint64_t i = 0; i < hashtags_size; i++) {
+		struct dwarf_tag *dtag;
+		struct hlist_node *pos, *tmp;
+
+		hlist_for_each_entry_safe(dtag, pos, tmp, &alt->hash_types[i], hash_node) {
+			if (!dwarf_cu__alt_pu_is_hit(dcu, dtag->id)) {
+				struct tag *tag = dtag__tag(dtag);
+				hlist_del(&dtag->hash_node);
+				list_del_init(&tag->node);
+				cu->types_table.entries[dtag->small_id] = NULL;
+			}
+		}
+		hlist_for_each_entry_safe(dtag, pos, tmp, &alt->hash_tags[i], hash_node) {
+			if (!dwarf_cu__alt_pu_is_hit(dcu, dtag->id)) {
+				struct tag *tag = dtag__tag(dtag);
+				hlist_del(&dtag->hash_node);
+				list_del_init(&tag->node);
+				if (tag__is_function(tag)) {
+					rb_erase(&tag__function(tag)->rb_node, &cu->functions);
+					cu->functions_table.entries[dtag->small_id] = NULL;
+				} else
+					cu->tags_table.entries[dtag->small_id] = NULL;
+			}
+		}
+		/*
+		 * Don't free pruned tags here: child tags (members) have
+		 * list nodes linked through their parent's namespace.tags,
+		 * so freeing parents in hash_types before processing children
+		 * in hash_tags would cause use-after-free on list_del_init().
+		 * All tag memory is freed when the CU is destroyed.
+		 */
+	}
+}
+
+/*
+ * Lookup a tag (function, lexblock, etc.) by DWARF offset.
+ *
+ * The from_alt bit tells us the reference came from DW_FORM_GNU_ref_alt
+ * or was inside an alt partial unit (processing_alt), so we go directly
+ * to dcu->alt->hash_tags.  This is a direct lookup, not a fallback —
+ * the DWARF form tells us which offset space the reference belongs to.
+ */
 static struct dwarf_tag *__dwarf_cu__find_tag_by_ref(const struct dwarf_cu *cu,
-						     const Dwarf_Off ref, bool from_types)
+						     const Dwarf_Off ref,
+						     bool from_types, bool from_alt)
 {
 	if (cu == NULL)
 		return NULL;
-	if (from_types) {
+	if (from_types)
 		return NULL;
+	if (from_alt) {
+		cu = cu->alt;
+		if (cu == NULL)
+			return NULL;
 	}
 	return hashtags__find(cu->hash_tags, ref);
 }
 
 #define dwarf_cu__find_tag_by_ref(cu, dtag, field) \
-	__dwarf_cu__find_tag_by_ref(cu, dtag->field, dtag->from_types_section.field)
+	__dwarf_cu__find_tag_by_ref(cu, dtag->field, \
+				    dtag->from_types_section.field, \
+				    dtag->from_alt.field)
 
+/* Same as __dwarf_cu__find_tag_by_ref but for type lookups (hash_types). */
 static struct dwarf_tag *__dwarf_cu__find_type_by_ref(struct dwarf_cu *dcu,
-						      const Dwarf_Off ref, bool from_types)
+						      const Dwarf_Off ref,
+						      bool from_types, bool from_alt)
 {
 	if (dcu == NULL)
 		return NULL;
 	if (from_types) {
 		dcu = dcu->type_unit;
-		if (dcu == NULL) {
+		if (dcu == NULL)
 			return NULL;
-		}
+	} else if (from_alt) {
+		dcu = dcu->alt;
+		if (dcu == NULL)
+			return NULL;
 	}
 
 	if (dcu->last_type_lookup->id == ref)
@@ -284,7 +490,9 @@ static struct dwarf_tag *__dwarf_cu__find_type_by_ref(struct dwarf_cu *dcu,
 }
 
 #define dwarf_cu__find_type_by_ref(dcu, dtag, field) \
-	__dwarf_cu__find_type_by_ref(dcu, dtag->field, dtag->from_types_section.field)
+	__dwarf_cu__find_type_by_ref(dcu, dtag->field, \
+				     dtag->from_types_section.field, \
+				     dtag->from_alt.field)
 
 static void *memdup(const void *src, size_t len, struct cu *cu)
 {
@@ -456,31 +664,65 @@ static const char *attr_string(Dwarf_Die *die, uint32_t name, struct conf_load *
 	return str;
 }
 
-static bool attr_form_is_ref_alt(Dwarf_Attribute *attr)
-{
-	if (attr->form == DW_FORM_GNU_ref_alt) {
-		static bool warned;
-
-		if (!warned) {
-			fprintf(stderr,
-				"WARNING: DW_FORM_GNU_ref_alt (dwz alternate debug file) not yet supported,\n"
-				"         some types will not be available.\n");
-			warned = true;
-		}
-		return true;
-	}
-	return false;
-}
-
-static bool attr_type(Dwarf_Die *die, uint32_t attr_name, Dwarf_Off *offset)
+/**
+ * attr_type - extract a type reference attribute from a DWARF DIE
+ * @die: the DWARF DIE to read the attribute from
+ * @attr_name: the attribute to read (DW_AT_type, DW_AT_import, etc)
+ * @offset: output DWARF offset of the referenced DIE
+ * @is_alt: output flag, set when the reference points to a dwz alt file
+ *
+ * Resolves a DWARF reference attribute to a DIE offset.  Handles three
+ * reference forms:
+ *
+ *  - DW_FORM_GNU_ref_alt: reference into a dwz alternate debug file.
+ *    Resolved transparently by elfutils via dwarf_getalt().  Sets
+ *    @is_alt so callers use the alt hash tables for lookup.
+ *
+ *  - DW_FORM_ref_sig8: reference into a .debug_types section (DWARF4).
+ *    Returns true so callers use the type_unit hash tables.
+ *
+ *  - All other ref forms (ref1/ref2/ref4/ref8/ref_addr): same-file
+ *    references resolved by dwarf_formref_die().
+ *
+ * Return: true if the reference is from the types section (DW_FORM_ref_sig8),
+ *         false otherwise.  @offset and @is_alt are set on output.
+ */
+static bool attr_type(Dwarf_Die *die, uint32_t attr_name, Dwarf_Off *offset,
+		      bool *is_alt)
 {
 	Dwarf_Attribute attr;
 
+	*is_alt = false;
+
 	if (dwarf_attr(die, attr_name, &attr) != NULL) {
 		Dwarf_Die type_die;
-		if (attr_form_is_ref_alt(&attr)) {
+		if (attr.form == DW_FORM_GNU_ref_alt) {
+			if (dwarf_formref_die(&attr, &type_die) != NULL) {
+				*offset = dwarf_dieoffset(&type_die);
+				*is_alt = true;
+				return false;
+			}
+			/* elfutils couldn't resolve the alt reference —
+			 * .gnu_debugaltlink target is missing or has a
+			 * build-id mismatch.  Warn once per process:
+			 * when loading multiple files in batch mode,
+			 * only the first missing alt triggers the
+			 * message — subsequent files with the same
+			 * problem are silent.  This trades completeness
+			 * for avoiding stderr spam on large debuginfo
+			 * directories where many files share the same
+			 * missing alt package. */
+			static bool alt_resolve_warned;
+			if (!alt_resolve_warned) {
+				fprintf(stderr,
+					"WARNING: could not resolve dwz alternate debug file\n"
+					"         (.gnu_debugaltlink target missing or build-id mismatch?)\n"
+					"         Some types will not be available.\n"
+					"         Installing the matching debuginfo package may fix this.\n");
+				alt_resolve_warned = true;
+			}
 			*offset = 0;
-			return 0;
+			return false;
 		}
 		if (dwarf_formref_die(&attr, &type_die) != NULL) {
 			*offset = dwarf_dieoffset(&type_die);
@@ -488,7 +730,7 @@ static bool attr_type(Dwarf_Die *die, uint32_t attr_name, Dwarf_Off *offset)
 		}
 	}
 	*offset = 0;
-	return 0;
+	return false;
 }
 
 static int attr_location(Dwarf_Die *die, Dwarf_Op **expr, size_t *exprlen)
@@ -539,8 +781,44 @@ static void tag__free(struct tag *tag, struct cu *cu)
 	cu__free(cu, dtag);
 }
 
-#define dwarf_tag__set_attr_type(dtag, field, die, attr_name, cu) \
-	dtag->from_types_section.field = attr_type(die, attr_name, &dtag->field)
+static void dwarf_cu__mark_alt_pu_hit(struct dwarf_cu *dcu, Dwarf_Off offset)
+{
+	struct alt_pu *pu = dwarf_cu__find_alt_pu(dcu, offset);
+	if (pu)
+		pu->hit = true;
+}
+
+/*
+ * Extract a reference attribute and record which offset space it targets.
+ *
+ * from_alt is set when either:
+ *  (a) attr_type() saw DW_FORM_GNU_ref_alt — an explicit alt reference, OR
+ *  (b) we are inside an alt partial unit (processing_alt) — a same-file
+ *      ref form like DW_FORM_ref4 that still refers to the alt offset space.
+ *
+ * This bit drives the lookup functions to search dcu->alt hash tables.
+ */
+#define dwarf_tag__set_attr_type(dtag, field, die, attr_name, cu) do {	\
+	bool __is_alt;							\
+	struct dwarf_cu *__dcu = (cu)->priv;				\
+	dtag->from_types_section.field = attr_type(die, attr_name,	\
+						   &dtag->field, &__is_alt); \
+	dtag->from_alt.field = __is_alt ||				\
+			       (__dcu && __dcu->processing_alt);	\
+	/* Only mark alt PU as hit for actual cross-file refs	\
+	 * (DW_FORM_GNU_ref_alt).  During processing_alt,	\
+	 * internal refs within alt PUs use same-file forms	\
+	 * (ref4 etc.) and must NOT mark PUs as hit — doing	\
+	 * so would mark every PU via its own internal refs	\
+	 * and defeat pruning entirely.  Transitive deps are	\
+	 * handled by DW_TAG_imported_unit chains: if PU A	\
+	 * imports PU B, then B gets marked hit during the	\
+	 * alt pre-processing pass in			\
+	 * cus__merge_and_process_cu().			\
+	 */							\
+	if (__dcu && __is_alt)					\
+		dwarf_cu__mark_alt_pu_hit(__dcu, dtag->field);		\
+} while (0)
 
 static void tag__init(struct tag *tag, struct cu *cu, Dwarf_Die *die)
 {
@@ -593,7 +871,7 @@ static struct tag *tag__new(Dwarf_Die *die, struct cu *cu)
 	return tag;
 }
 
-static void tag__set_spec(struct tag *tag, Dwarf_Die *die, struct cu *cu __maybe_unused)
+static void tag__set_spec(struct tag *tag, Dwarf_Die *die, struct cu *cu)
 {
 	struct dwarf_tag *dtag = tag__dwarf(tag);
 	dwarf_tag__set_attr_type(dtag, specification, die, DW_AT_specification, cu);
@@ -709,8 +987,7 @@ static void type__init(struct type *type, Dwarf_Die *die, struct cu *cu, struct 
 	Dwarf_Attribute attr;
 	if (dwarf_attr(die, DW_AT_type, &attr) != NULL) {
 		Dwarf_Die type_die;
-		if (!attr_form_is_ref_alt(&attr) &&
-		    dwarf_formref_die(&attr, &type_die) != NULL) {
+		if (dwarf_formref_die(&attr, &type_die) != NULL) {
 			uint64_t encoding = attr_numeric(&type_die, DW_AT_encoding);
 
 			if (encoding == DW_ATE_signed || encoding == DW_ATE_signed_char)
@@ -1025,8 +1302,6 @@ static int add_gnu_annotation_chain(Dwarf_Die *die, int component_idx,
 	Dwarf_Die annot_die;
 
 	while (dwarf_attr(die, DW_AT_GNU_annotation, &attr) != NULL) {
-		if (attr_form_is_ref_alt(&attr))
-			break;
 		if (dwarf_formref_die(&attr, &annot_die) == NULL)
 			break;
 		if (dwarf_tag(&annot_die) != DW_TAG_GNU_annotation)
@@ -1479,7 +1754,9 @@ static void parameter__record_true_sig_member(struct parameter *parm, Dwarf_Die 
 	if (!parm->true_sig_member_name)
 		return;
 
-	parm->true_sig_type_from_types = attr_type(&member_die, DW_AT_type, &parm->true_sig_type);
+	bool is_alt;
+	parm->true_sig_type_from_types = attr_type(&member_die, DW_AT_type, &parm->true_sig_type, &is_alt);
+	parm->true_sig_type_from_alt = is_alt;
 	if (parm->true_sig_type == 0)
 		parm->true_sig_member_name = NULL;
 }
@@ -2071,23 +2348,55 @@ check_gnu_attr:
 		goto out;
 
 	/* Handle GCC-style DW_AT_GNU_annotation attribute */
-	while (dwarf_attr(die, DW_AT_GNU_annotation, &attr) != NULL) {
-		if (attr_form_is_ref_alt(&attr))
-			break;
-		if (dwarf_formref_die(&attr, &annot_die) == NULL)
-			break;
-		if (dwarf_tag(&annot_die) != DW_TAG_GNU_annotation)
-			break;
-		name = attr_string(&annot_die, DW_AT_name, conf);
-		if (strcmp(name, "btf_type_tag") != 0)
-			break;
+	{
+		struct dwarf_cu *annot_dcu = cu->priv;
+		bool was_alt = annot_dcu->processing_alt;
 
-		/* GCC chain is already in BTF order; append to preserve it. */
-		tag = die__add_btf_type_tag(tag, die, &annot_die, cu, conf, false);
-		if (tag == NULL)
-			return NULL;
+		while (dwarf_attr(die, DW_AT_GNU_annotation, &attr) != NULL) {
+			bool is_alt_annot = (attr.form == DW_FORM_GNU_ref_alt);
 
-		die = &annot_die;
+			if (dwarf_formref_die(&attr, &annot_die) == NULL)
+				break;
+			if (dwarf_tag(&annot_die) != DW_TAG_GNU_annotation)
+				break;
+			name = attr_string(&annot_die, DW_AT_name, conf);
+			if (strcmp(name, "btf_type_tag") != 0)
+				break;
+
+			/*
+			 * Create the base wrapper before entering alt context
+			 * so the pointer's type ref stays in the main file's
+			 * hash tables.  Then set processing_alt so the
+			 * annotation itself is hashed into the alt tables.
+			 */
+			/* Mark annotation as hit for both cross-file refs
+			 * (DW_FORM_GNU_ref_alt) and intra-alt refs when
+			 * already in alt context, so annotations aren't
+			 * pruned by dwarf_cu__prune_unreferenced_alt_pus */
+			if (is_alt_annot || annot_dcu->processing_alt) {
+				dwarf_cu__mark_alt_pu_hit(annot_dcu,
+							  dwarf_dieoffset(&annot_die));
+				if (tag == NULL) {
+					tag = die__create_new_btf_type_tag_ptr_type(die, cu);
+					if (tag == NULL) {
+						annot_dcu->processing_alt = was_alt;
+						return NULL;
+					}
+				}
+				annot_dcu->processing_alt = true;
+			}
+
+			/* GCC chain is already in BTF order; append to preserve it. */
+			tag = die__add_btf_type_tag(tag, die, &annot_die, cu, conf, false);
+			if (tag == NULL) {
+				annot_dcu->processing_alt = was_alt;
+				return NULL;
+			}
+
+			die = &annot_die;
+		}
+
+		annot_dcu->processing_alt = was_alt;
 	}
 
 out:
@@ -3006,6 +3315,45 @@ static int dwarf_cu__mark_imported_unit(struct dwarf_cu *dcu, struct cu *cu, Dwa
 	return 0;
 }
 
+/*
+ * Defensive: dwarf_nextcu iterates monotonically so duplicates
+ * should not occur, but guard against it anyway.
+ */
+static bool dwarf_cu__alt_pu_visited(struct dwarf_cu *dcu, Dwarf_Off offset)
+{
+	/* Exact start match — reuse the range search since PU starts
+	 * are unique and searching for a start offset will land in
+	 * the PU whose start == offset (if it exists). */
+	struct alt_pu *pu = dwarf_cu__find_alt_pu(dcu, offset);
+	return pu && pu->start == offset;
+}
+
+static int dwarf_cu__add_alt_pu(struct dwarf_cu *dcu, Dwarf_Off start, Dwarf_Off end)
+{
+	if (dcu->nr_alt_pus == dcu->allocated_alt_pus) {
+		uint32_t new_size = dcu->allocated_alt_pus ? dcu->allocated_alt_pus * 2 : 16;
+		if (new_size <= dcu->allocated_alt_pus)
+			return -ENOMEM;
+		struct alt_pu *new_array = realloc(dcu->alt_pus, new_size * sizeof(*new_array));
+		if (new_array == NULL)
+			return -ENOMEM;
+		dcu->alt_pus = new_array;
+		dcu->allocated_alt_pus = new_size;
+	}
+	dcu->alt_pus[dcu->nr_alt_pus++] = (struct alt_pu){ .start = start, .end = end, .hit = false };
+	return 0;
+}
+
+/**
+ * die__process_imported_unit - process a DW_TAG_imported_unit reference
+ *
+ * For alt-file imports (DW_FORM_GNU_ref_alt / dwz): marks the partial
+ * unit as referenced for pruning.  Alt PUs are pre-processed in bulk
+ * by cus__merge_and_process_cu().
+ *
+ * For same-file imports: processes children inline into the CU's type
+ * tables, with dedup to avoid re-processing.
+ */
 static int die__process_imported_unit(Dwarf_Die *die, struct cu *cu, struct conf_load *conf, int import_depth)
 {
 	Dwarf_Attribute attr;
@@ -3013,8 +3361,7 @@ static int die__process_imported_unit(Dwarf_Die *die, struct cu *cu, struct conf
 	if (dwarf_attr(die, DW_AT_import, &attr) == NULL)
 		return 0;
 
-	if (attr_form_is_ref_alt(&attr))
-		return 0;
+	bool is_alt = (attr.form == DW_FORM_GNU_ref_alt);
 
 	Dwarf_Die imported_die;
 
@@ -3039,6 +3386,18 @@ static int die__process_imported_unit(Dwarf_Die *die, struct cu *cu, struct conf
 
 	Dwarf_Off offset = dwarf_dieoffset(&imported_die);
 	struct dwarf_cu *dcu = cu->priv;
+
+	if (is_alt || dcu->processing_alt) {
+		/*
+		 * Alt PUs are pre-processed in cus__merge_and_process_cu(),
+		 * so just mark this one as referenced for pruning.
+		 * Mark hits from both main CU imports (is_alt) and
+		 * inter-alt-PU imports (processing_alt) to handle
+		 * transitive dependencies between partial units.
+		 */
+		dwarf_cu__mark_alt_pu_hit(dcu, offset);
+		return 0;
+	}
 
 	if (dwarf_cu__imported_unit_visited(dcu, offset))
 		return 0;
@@ -3356,7 +3715,8 @@ static bool parameter__apply_true_sig_member(struct parameter *parm, struct cu *
 
 	tmp.type = parm->true_sig_type;
 	tmp.from_types_section.type = parm->true_sig_type_from_types;
-	dtype = __dwarf_cu__find_type_by_ref(cu->priv, tmp.type, tmp.from_types_section.type);
+	dtype = __dwarf_cu__find_type_by_ref(cu->priv, tmp.type, tmp.from_types_section.type,
+					     parm->true_sig_type_from_alt);
 	if (!dtype)
 		return false;
 
@@ -3512,10 +3872,15 @@ static void lexblock__recode_dwarf_types(struct lexblock *tag, struct cu *cu)
 			else
 				dtype = dwarf_cu__find_tag_by_ref(dcu, dpos, abstract_origin);
 			if (dtype == NULL) {
-				if (dpos->type != 0)
+				if (dpos->type != 0) {
 					tag__print_type_not_found(pos);
-				else
+					tag__check_pruned_alt_ref(dcu, dpos->type,
+								  dpos->from_alt.type);
+				} else {
 					tag__print_abstract_origin_not_found(pos);
+					tag__check_pruned_alt_ref(dcu, dpos->abstract_origin,
+								  dpos->from_alt.abstract_origin);
+				}
 				continue;
 			}
 			ftype__recode_dwarf_types(dtag__tag(dtype), cu);
@@ -3577,6 +3942,7 @@ static void lexblock__recode_dwarf_types(struct lexblock *tag, struct cu *cu)
 		dtype = dwarf_cu__find_type_by_ref(dcu, dpos, type);
 		if (dtype == NULL) {
 			tag__print_type_not_found(pos);
+			tag__check_pruned_alt_ref(dcu, dpos->type, dpos->from_alt.type);
 			continue;
 		}
 		pos->type = dtype->small_id;
@@ -3697,10 +4063,14 @@ static int tag__recode_dwarf_type(struct tag *tag, struct cu *cu)
 
 	case DW_TAG_namespace:
 		return namespace__recode_dwarf_types(tag, cu);
-	/* Damn, DW_TAG_inlined_subroutine is an special case
-           as dwarf_tag->id is in fact an abtract origin, i.e. must be
-	   looked up in the tags_table, not in the types_table.
-	   The others also point to routines, so are in tags_table */
+	/*
+	 * DW_TAG_inlined_subroutine uses DW_AT_abstract_origin to
+	 * reference the out-of-line subprogram.  inline_expansion__new()
+	 * stores this in dtag->type (not dtag->abstract_origin) via
+	 * dwarf_tag__set_attr_type(dtag, type, die, DW_AT_abstract_origin).
+	 * For dwz binaries, the target subprogram lives in the alt file,
+	 * so dtag->from_alt.type drives the lookup to dcu->alt->hash_tags.
+	 */
 	case DW_TAG_inlined_subroutine:
 	case DW_TAG_imported_module:
 		dtype = dwarf_cu__find_tag_by_ref(cu->priv, dtag, type);
@@ -3738,6 +4108,7 @@ find_type:
 check_type:
 	if (dtype == NULL) {
 		tag__print_type_not_found(tag);
+		tag__check_pruned_alt_ref(cu->priv, dtag->type, dtag->from_alt.type);
 		return 0;
 	}
 out:
@@ -4681,6 +5052,75 @@ static int cus__merge_and_process_cu(struct cus *cus, struct conf_load *conf,
 
 			dcu->cu = cu;
 			dcu->type_unit = type_dcu;
+
+			/*
+			 * Check for a dwz alternate debug file.  Create
+			 * a separate dwarf_cu with its own hash tables
+			 * for the alt file's offset space, so that
+			 * DW_FORM_GNU_ref_alt references during
+			 * die__process_unit() can be hashed and looked
+			 * up without colliding with main-file offsets.
+			 *
+			 * Pre-process all partial units in the alt file
+			 * so that DW_FORM_GNU_ref_alt references from
+			 * regular attributes (DW_AT_abstract_origin,
+			 * DW_AT_type, etc. on inlined_subroutines and
+			 * other DIEs) can be resolved.  These direct
+			 * references can point to any DIE in the alt
+			 * file, not just those in explicitly imported
+			 * partial units.
+			 */
+			Dwarf *alt_dw = dwarf_getalt(dw);
+
+			if (alt_dw != NULL) {
+				struct dwarf_cu *alt_dcu = dwarf_cu__new(cu);
+
+				if (alt_dcu == NULL)
+					goto out_abort;
+
+				alt_dcu->cu = cu;
+				dcu->alt = alt_dcu;
+
+				Dwarf_Off alt_off = 0, alt_noff;
+				size_t alt_cuhl;
+
+				/*
+				 * First pass: register all alt PUs so that
+				 * forward references between them can be
+				 * resolved during processing.
+				 */
+				while (dwarf_nextcu(alt_dw, alt_off, &alt_noff,
+						   &alt_cuhl, NULL, NULL, NULL) == 0) {
+					Dwarf_Die alt_die_mem;
+
+					if (dwarf_offdie(alt_dw, alt_off + alt_cuhl,
+							 &alt_die_mem) != NULL &&
+					    !dwarf_cu__alt_pu_visited(dcu, alt_off + alt_cuhl)) {
+						if (dwarf_cu__add_alt_pu(dcu, alt_off + alt_cuhl, alt_noff))
+							goto out_abort;
+					}
+					alt_off = alt_noff;
+				}
+
+				/* Second pass: process DIEs now that all PUs
+				 * are in the array and can be marked as hit.
+				 */
+				dcu->processing_alt = true;
+
+				for (uint32_t i = 0; i < dcu->nr_alt_pus; i++) {
+					Dwarf_Die alt_cu_die, alt_child;
+
+					if (dwarf_offdie(alt_dw, dcu->alt_pus[i].start,
+							 &alt_cu_die) != NULL &&
+					    dwarf_child(&alt_cu_die, &alt_child) == 0) {
+						if (die__process_unit(&alt_child, cu, conf, 0) != 0)
+							goto out_abort;
+					}
+				}
+
+				dcu->processing_alt = false;
+			}
+
 			cu->language = attr_numeric(cu_die, DW_AT_language);
 			cu->producer_clang = attr_producer_clang(cu_die);
 			cus__add(cus, cu);
@@ -4709,6 +5149,9 @@ static int cus__merge_and_process_cu(struct cus *cus, struct conf_load *conf,
 
 	if (cu == NULL)
 		return 0;
+
+	if (dcu)
+		dwarf_cu__prune_unreferenced_alt_pus(dcu);
 
 	/* process merged cu */
 	if (cu__recode_dwarf_types(cu) != LSK__KEEPIT)
@@ -4769,7 +5212,7 @@ static int cus__load_module(struct cus *cus, struct conf_load *conf,
 			cus__remove(cus, type_cu);
 	}
 
-	if (conf->force_cu_merging || cus__merging_cu(dw, elf)) {
+	if (conf->force_cu_merging || cus__merging_cu(dw, elf) || dwarf_getalt(dw) != NULL) {
 		res = cus__merge_and_process_cu(cus, conf, mod, dw, elf, filename,
 						build_id, build_id_len,
 						type_cu ? type_dcu : NULL);
