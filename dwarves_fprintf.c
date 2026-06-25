@@ -539,8 +539,8 @@ static const char *tag__prefix(const struct cu *cu, const uint32_t tag,
 	case DW_TAG_enumeration_type:	return "enum ";
 	case DW_TAG_structure_type:
 		return (!conf->classes_as_structs &&
-			cu->language == DW_LANG_C_plus_plus) ? "class " :
-							       "struct ";
+			cu__is_c_plus_plus(cu)) ? "class " :
+						  "struct ";
 	case DW_TAG_class_type:
 		return conf->classes_as_structs ? "struct " : "class ";
 	case DW_TAG_union_type:		return "union ";

@@ -17,6 +17,49 @@
 #include <linux/types.h>
 #include <sys/types.h>
 
+/* Fallback defines for DWARF language constants that may be missing on
+ * older elfutils.  Needed by the cu__is_c_plus_plus/cu__is_c inlines below.
+ */
+#ifndef DW_LANG_C89
+#define DW_LANG_C89		0x0001
+#endif
+#ifndef DW_LANG_C
+#define DW_LANG_C		0x0002
+#endif
+#ifndef DW_LANG_C_plus_plus
+#define DW_LANG_C_plus_plus	0x0004
+#endif
+#ifndef DW_LANG_C99
+#define DW_LANG_C99		0x000c
+#endif
+#ifndef DW_LANG_C_plus_plus_03
+#define DW_LANG_C_plus_plus_03	0x0019
+#endif
+#ifndef DW_LANG_C_plus_plus_11
+#define DW_LANG_C_plus_plus_11	0x001a
+#endif
+#ifndef DW_LANG_C11
+#define DW_LANG_C11		0x001d
+#endif
+#ifndef DW_LANG_C_plus_plus_14
+#define DW_LANG_C_plus_plus_14	0x0021
+#endif
+#ifndef DW_LANG_C_plus_plus_17
+#define DW_LANG_C_plus_plus_17	0x002a
+#endif
+#ifndef DW_LANG_C_plus_plus_20
+#define DW_LANG_C_plus_plus_20	0x002b
+#endif
+#ifndef DW_LANG_C17
+#define DW_LANG_C17		0x002c
+#endif
+#ifndef DW_LANG_C_plus_plus_23
+#define DW_LANG_C_plus_plus_23	0x003a
+#endif
+#ifndef DW_LANG_C23
+#define DW_LANG_C23		0x003e
+#endif
+
 #include "dutil.h"
 #include "list.h"
 #include "rbtree.h"
@@ -350,12 +393,33 @@ static inline int cu__cache_symtab(struct cu *cu)
 
 static inline __pure bool cu__is_c_plus_plus(const struct cu *cu)
 {
-	return cu->language == LANG_C_plus_plus;
+	switch (cu->language) {
+	case DW_LANG_C_plus_plus:
+	case DW_LANG_C_plus_plus_03:
+	case DW_LANG_C_plus_plus_11:
+	case DW_LANG_C_plus_plus_14:
+	case DW_LANG_C_plus_plus_17:
+	case DW_LANG_C_plus_plus_20:
+	case DW_LANG_C_plus_plus_23:
+		return true;
+	default:
+		return false;
+	}
 }
 
 static inline __pure bool cu__is_c(const struct cu *cu)
 {
-	return cu->language == LANG_C;
+	switch (cu->language) {
+	case DW_LANG_C:
+	case DW_LANG_C89:
+	case DW_LANG_C99:
+	case DW_LANG_C11:
+	case DW_LANG_C17:
+	case DW_LANG_C23:
+		return true;
+	default:
+		return false;
+	}
 }
 
 int lang__str2int(const char *lang);

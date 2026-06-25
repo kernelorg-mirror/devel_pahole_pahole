@@ -2417,17 +2417,8 @@ int cus__load_file(struct cus *cus, struct conf_load *conf,
 	_min1 < _min2 ? _min1 : _min2; })
 #endif
 
-#ifndef DW_LANG_C89
-#define DW_LANG_C89		0x0001
-#endif
-#ifndef DW_LANG_C
-#define DW_LANG_C		0x0002
-#endif
 #ifndef DW_LANG_Ada83
 #define DW_LANG_Ada83		0x0003
-#endif
-#ifndef DW_LANG_C_plus_plus
-#define DW_LANG_C_plus_plus	0x0004
 #endif
 #ifndef DW_LANG_Cobol74
 #define DW_LANG_Cobol74		0x0005
@@ -2449,9 +2440,6 @@ int cus__load_file(struct cus *cus, struct conf_load *conf,
 #endif
 #ifndef DW_LANG_Java
 #define DW_LANG_Java		0x000b
-#endif
-#ifndef DW_LANG_C99
-#define DW_LANG_C99		0x000c
 #endif
 #ifndef DW_LANG_Ada95
 #define DW_LANG_Ada95		0x000d
@@ -2489,20 +2477,11 @@ int cus__load_file(struct cus *cus, struct conf_load *conf,
 #ifndef DW_LANG_Haskell
 #define DW_LANG_Haskell		0x0018
 #endif
-#ifndef DW_LANG_C_plus_plus_03
-#define DW_LANG_C_plus_plus_03	0x0019
-#endif
-#ifndef DW_LANG_C_plus_plus_11
-#define DW_LANG_C_plus_plus_11	0x001a
-#endif
 #ifndef DW_LANG_OCaml
 #define DW_LANG_OCaml		0x001b
 #endif
 #ifndef DW_LANG_Rust
 #define DW_LANG_Rust		0x001c
-#endif
-#ifndef DW_LANG_C11
-#define DW_LANG_C11		0x001d
 #endif
 #ifndef DW_LANG_Swift
 #define DW_LANG_Swift		0x001e
@@ -2512,9 +2491,6 @@ int cus__load_file(struct cus *cus, struct conf_load *conf,
 #endif
 #ifndef DW_LANG_Dylan
 #define DW_LANG_Dylan		0x0020
-#endif
-#ifndef DW_LANG_C_plus_plus_14
-#define DW_LANG_C_plus_plus_14	0x0021
 #endif
 #ifndef DW_LANG_Fortran03
 #define DW_LANG_Fortran03	0x0022
@@ -2534,6 +2510,8 @@ static const char *languages[] = {
 	[DW_LANG_Ada95]		 = "ada95",
 	[DW_LANG_BLISS]		 = "bliss",
 	[DW_LANG_C11]		 = "c11",
+	[DW_LANG_C17]		 = "c17",
+	[DW_LANG_C23]		 = "c23",
 	[DW_LANG_C89]		 = "c89",
 	[DW_LANG_C99]		 = "c99",
 	[DW_LANG_C]		 = "c",
@@ -2542,6 +2520,9 @@ static const char *languages[] = {
 	[DW_LANG_C_plus_plus_03] = "c++03",
 	[DW_LANG_C_plus_plus_11] = "c++11",
 	[DW_LANG_C_plus_plus_14] = "c++14",
+	[DW_LANG_C_plus_plus_17] = "c++17",
+	[DW_LANG_C_plus_plus_20] = "c++20",
+	[DW_LANG_C_plus_plus_23] = "c++23",
 	[DW_LANG_C_plus_plus]	 = "c++",
 	[DW_LANG_D]		 = "d",
 	[DW_LANG_Dylan]		 = "dylan",
@@ -2586,8 +2567,7 @@ int lang__str2int(const char *lang)
 	if (strcasecmp(lang, "asm") == 0)
 		return DW_LANG_Mips_Assembler;
 
-	// c89 is the first, bliss is the last, see /usr/include/dwarf.h
-	for (int id = DW_LANG_C89; id <= DW_LANG_BLISS; ++id)
+	for (int id = 0; id < (int)ARRAY_SIZE(languages); ++id)
 		if (languages[id] && strcasecmp(lang, languages[id]) == 0)
 			return id;
 
