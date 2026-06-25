@@ -1500,6 +1500,16 @@ static struct template_value_param *template_value_param__new(Dwarf_Die *die, st
 	return tvparm;
 }
 
+/**
+ * template_parameter_pack__load_params - load children of a DW_TAG_template_parameter_pack
+ * @pack: pack to populate
+ * @die: the DW_TAG_template_parameter_pack DIE
+ * @cu: compilation unit
+ * @conf: load configuration
+ *
+ * Iterates the pack's children, accepting both DW_TAG_template_type_parameter
+ * and DW_TAG_template_value_parameter (C++ variadic templates can mix both).
+ */
 static int template_parameter_pack__load_params(struct template_parameter_pack *pack, Dwarf_Die *die, struct cu *cu, struct conf_load *conf)
 {
 	Dwarf_Die child;
@@ -1509,12 +1519,25 @@ static int template_parameter_pack__load_params(struct template_parameter_pack *
 
 	die = &child;
 	do {
-		if (dwarf_tag(die) != DW_TAG_template_type_parameter) {
+		struct tag *param = NULL;
+
+		switch (dwarf_tag(die)) {
+		case DW_TAG_template_type_parameter: {
+			struct template_type_param *ttparm = template_type_param__new(die, cu, conf);
+			if (ttparm != NULL)
+				param = &ttparm->tag;
+			break;
+		}
+		case DW_TAG_template_value_parameter: {
+			struct template_value_param *tvparm = template_value_param__new(die, cu, conf);
+			if (tvparm != NULL)
+				param = &tvparm->tag;
+			break;
+		}
+		default:
 			cu__tag_not_handled(cu, die);
 			continue;
 		}
-
-		struct template_type_param *param = template_type_param__new(die, cu, conf);
 
 		if (param == NULL)
 			return -1;

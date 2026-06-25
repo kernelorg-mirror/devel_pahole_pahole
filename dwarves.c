@@ -1561,9 +1561,14 @@ void ftype__add_template_value_param(struct ftype *ftype, struct template_value_
 	list_add_tail(&param->tag.node, &ftype->template_value_params);
 }
 
-void template_parameter_pack__add(struct template_parameter_pack *pack, struct template_type_param *param)
+/**
+ * template_parameter_pack__add - append a template parameter to a pack
+ * @pack: the template parameter pack
+ * @param: tag representing a DW_TAG_template_{type,value}_parameter
+ */
+void template_parameter_pack__add(struct template_parameter_pack *pack, struct tag *param)
 {
-	list_add_tail(&param->tag.node, &pack->params);
+	list_add_tail(&param->node, &pack->params);
 }
 
 void formal_parameter_pack__add(struct formal_parameter_pack *pack, struct parameter *param)

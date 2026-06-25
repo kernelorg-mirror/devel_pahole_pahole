@@ -1031,7 +1031,12 @@ static inline struct template_parameter_pack *tag__template_parameter_pack(const
 	return (struct template_parameter_pack *)tag;
 }
 
-void template_parameter_pack__add(struct template_parameter_pack *pack, struct template_type_param *param);
+/**
+ * template_parameter_pack__add - append a template parameter to a pack
+ * @pack: the template parameter pack
+ * @param: tag representing a DW_TAG_template_{type,value}_parameter
+ */
+void template_parameter_pack__add(struct template_parameter_pack *pack, struct tag *param);
 
 /* struct formal_parameter_pack - list of DW_TAG_formal_parameter
  */
