@@ -13,6 +13,57 @@
 #include "dwarves_emit.h"
 #include "dwarves.h"
 
+/*
+ * Check whether any value parameter type on @type is unresolvable.
+ * Covers both direct DW_TAG_template_value_parameter entries and
+ * the first child of the parameter pack (if it is a value param).
+ * Callers use this to bail before writing "template<" — once that
+ * prefix is on the wire there is no way to retract it.
+ *
+ * The merge loops in type__emit_template_fwd_decl() and
+ * __emit_template_template_param() retain their own NULL-ptype
+ * fallbacks as safety nets; see the comments there.
+ */
+static bool type__has_unresolvable_value_params(const struct type *type,
+						const struct cu *cu)
+{
+	struct template_value_param *vp;
+
+	list_for_each_entry(vp, &type->template_value_params, tag.node) {
+		if (cu__type(cu, vp->tag.type) == NULL)
+			return true;
+	}
+
+	struct template_parameter_pack *pack = type->template_parameter_pack;
+
+	if (pack != NULL && !list_empty(&pack->params)) {
+		struct tag *first = list_first_entry(&pack->params,
+						     struct tag, node);
+		if (first->tag == DW_TAG_template_value_parameter) {
+			if (cu__type(cu, tag__template_value_param(first)->tag.type) == NULL)
+				return true;
+		}
+	}
+
+	return false;
+}
+
+static void __emit_template_template_param(const struct template_template_param *ttp,
+					   const struct cu *cu, FILE *fp,
+					   int depth, bool emit_name);
+static void emit_template_template_param(const struct template_template_param *ttp,
+					  const struct cu *cu, FILE *fp);
+
+/* Lossy fallback when the concrete template can't be resolved */
+static void template_template_param__emit_fallback(const struct template_template_param *ttp,
+						   FILE *fp, bool emit_name)
+{
+	if (emit_name && ttp->name)
+		fprintf(fp, "template<typename...> class %s", ttp->name);
+	else
+		fputs("template<typename...> class", fp);
+}
+
 static void type__emit_template_pack_param(const struct type *ctype,
 					   const struct cu *cu, FILE *fp)
 {
@@ -28,7 +79,7 @@ static void type__emit_template_pack_param(const struct type *ctype,
 	if (first_param->tag == DW_TAG_template_type_parameter) {
 		fprintf(fp, "typename... %s", pack->name ?: "");
 	} else if (first_param->tag == DW_TAG_template_value_parameter) {
-		struct template_value_param *vp = (struct template_value_param *)first_param;
+		struct template_value_param *vp = tag__template_value_param(first_param);
 		char type_name[128];
 		struct tag *ptype = cu__type(cu, vp->tag.type);
 
@@ -39,9 +90,166 @@ static void type__emit_template_pack_param(const struct type *ctype,
 				tag__name(ptype, cu, type_name, sizeof(type_name), NULL),
 				pack->name ?: "");
 		}
+	} else if (first_param->tag == DW_TAG_GNU_template_template_param) {
+		struct template_template_param *ttp = tag__template_template_param(first_param);
+		/* Emit the full inner signature without the name, then
+		 * append "class... packname" so we get e.g.
+		 * "template<typename, int> class... Arrs" instead of
+		 * the lossy "template<typename...> class... Arrs". */
+		__emit_template_template_param(ttp, cu, fp, 0, /*emit_name=*/false);
+		fprintf(fp, "... %s", pack->name ?: "");
 	} else {
 		fprintf(fp, "typename... %s", pack->name ?: "");
 	}
+}
+
+/*
+ * Derive the inner parameter signature for a template template parameter
+ * by looking up the concrete template it references in the CU.
+ *
+ * E.g. for "template<typename T, int N> struct FixedArray", when a template
+ * template parameter references FixedArray, emit "template<typename, int> class Arr"
+ * instead of the incorrect "template<typename...> class Arr".
+ */
+static void __emit_template_template_param(const struct template_template_param *ttp,
+					   const struct cu *cu, FILE *fp,
+					   int depth, bool emit_name)
+{
+	if (depth > 8) {
+		template_template_param__emit_fallback(ttp, fp, emit_name);
+		return;
+	}
+
+	if (ttp->template_name == NULL) {
+		template_template_param__emit_fallback(ttp, fp, emit_name);
+		return;
+	}
+
+	/*
+	 * template_name can be namespace-qualified (e.g.
+	 * "llvm::detail::zip_enumerator"); cu__find_type_by_base_name
+	 * searches by unqualified name, so strip leading namespaces.
+	 * Only strip before the first '<' to avoid mishandling names
+	 * with template arguments like "Foo<Bar::Baz>".
+	 *
+	 * Note: unqualified lookup can collide across namespaces;
+	 * a wrong-but-plausible inner signature still fails at the
+	 * test's compile step, so this is a known limitation.
+	 */
+	const char *lookup_name = ttp->template_name;
+	const char *lt = strchr(lookup_name, '<');
+	const char *last_sep = NULL, *p = lookup_name;
+	while ((p = strstr(p, "::")) != NULL && (lt == NULL || p < lt)) {
+		last_sep = p;
+		p += 2;
+	}
+	if (last_sep)
+		lookup_name = last_sep + 2;
+	struct tag *ref_tag = cu__find_type_by_base_name(cu, lookup_name, NULL);
+
+	if (ref_tag == NULL || !(tag__is_struct(ref_tag) || tag__is_union(ref_tag))) {
+		template_template_param__emit_fallback(ttp, fp, emit_name);
+		return;
+	}
+
+	struct type *ref = tag__type(ref_tag);
+
+	if (!type__has_template_params(ref) &&
+	    list_empty(&ref->template_template_params)) {
+		template_template_param__emit_fallback(ttp, fp, emit_name);
+		return;
+	}
+
+	if (type__has_unresolvable_value_params(ref, cu)) {
+		template_template_param__emit_fallback(ttp, fp, emit_name);
+		return;
+	}
+
+	fputs("template<", fp);
+
+	/*
+	 * Four-way decl_order merge — keep in sync with
+	 * type__emit_template_fwd_decl() which has the same loop.
+	 */
+	struct template_type_param *rttp = list_empty(&ref->template_type_params) ? NULL :
+		list_first_entry(&ref->template_type_params, struct template_type_param, tag.node);
+	struct template_value_param *rtvp = list_empty(&ref->template_value_params) ? NULL :
+		list_first_entry(&ref->template_value_params, struct template_value_param, tag.node);
+	struct template_template_param *rttp2 = list_empty(&ref->template_template_params) ? NULL :
+		list_first_entry(&ref->template_template_params, struct template_template_param, tag.node);
+	struct template_parameter_pack *rpack = ref->template_parameter_pack;
+	bool pack_emitted = (rpack == NULL);
+	bool first = true;
+
+	while (rttp != NULL || rtvp != NULL || rttp2 != NULL || !pack_emitted) {
+		uint16_t rttp_ord = rttp ? rttp->decl_order : UINT16_MAX;
+		uint16_t rtvp_ord = rtvp ? rtvp->decl_order : UINT16_MAX;
+		uint16_t rttp2_ord = rttp2 ? rttp2->decl_order : UINT16_MAX;
+		uint16_t rpack_ord = !pack_emitted ? rpack->decl_order : UINT16_MAX;
+
+		if (!first)
+			fputs(", ", fp);
+
+		if (rttp != NULL && rttp_ord <= rtvp_ord && rttp_ord <= rttp2_ord && rttp_ord <= rpack_ord) {
+			fputs("typename", fp);
+			rttp = (rttp->tag.node.next == &ref->template_type_params) ? NULL :
+				list_next_entry(rttp, tag.node);
+		} else if (rtvp != NULL && rtvp_ord <= rttp_ord && rtvp_ord <= rttp2_ord && rtvp_ord <= rpack_ord) {
+			char type_name[128];
+			struct tag *ptype = cu__type(cu, rtvp->tag.type);
+
+			/* NULL ptype can't happen: type__has_unresolvable_value_params()
+			 * bails before we reach here.  Keep the fallback as a safety
+			 * net for future callers that may skip the pre-scan. */
+			fputs(ptype ? tag__name(ptype, cu, type_name, sizeof(type_name), NULL)
+				    : "/* unresolved */", fp);
+			rtvp = (rtvp->tag.node.next == &ref->template_value_params) ? NULL :
+				list_next_entry(rtvp, tag.node);
+		} else if (rttp2 != NULL && rttp2_ord <= rttp_ord && rttp2_ord <= rtvp_ord && rttp2_ord <= rpack_ord) {
+			__emit_template_template_param(rttp2, cu, fp, depth + 1, /*emit_name=*/true);
+			rttp2 = (rttp2->tag.node.next == &ref->template_template_params) ? NULL :
+				list_next_entry(rttp2, tag.node);
+			first = false;
+			continue;
+		} else {
+			struct tag *first_param = list_empty(&rpack->params) ? NULL :
+				list_first_entry(&rpack->params, struct tag, node);
+
+			if (first_param && first_param->tag == DW_TAG_template_value_parameter) {
+				struct template_value_param *vp = tag__template_value_param(first_param);
+				char type_name[128];
+				struct tag *ptype = cu__type(cu, vp->tag.type);
+
+				/* Same safety net as the value-param branch above */
+				if (ptype == NULL) {
+					fputs("typename...", fp);
+				} else {
+					fprintf(fp, "%s...",
+						tag__name(ptype, cu, type_name, sizeof(type_name), NULL));
+				}
+			} else if (first_param && first_param->tag == DW_TAG_GNU_template_template_param) {
+				struct template_template_param *inner_ttp = tag__template_template_param(first_param);
+				__emit_template_template_param(inner_ttp, cu, fp, depth + 1, /*emit_name=*/false);
+				fputs("...", fp);
+			} else {
+				fputs("typename...", fp);
+			}
+			pack_emitted = true;
+		}
+
+		first = false;
+	}
+
+	if (emit_name)
+		fprintf(fp, "> class %s", ttp->name ?: "");
+	else
+		fputs("> class", fp);
+}
+
+static void emit_template_template_param(const struct template_template_param *ttp,
+					 const struct cu *cu, FILE *fp)
+{
+	__emit_template_template_param(ttp, cu, fp, 0, /*emit_name=*/true);
 }
 
 /**
@@ -64,8 +272,9 @@ static void type__emit_template_pack_param(const struct type *ctype,
  * parameter names (T, N, Ts) and kinds (typename vs value type).
  *
  * Handles DW_TAG_template_type_parameter ("typename T"),
- * DW_TAG_template_value_parameter ("int N"), and
- * DW_TAG_template_parameter_pack ("typename... Ts" or "int... Ns").
+ * DW_TAG_template_value_parameter ("int N"),
+ * DW_TAG_template_parameter_pack ("typename... Ts" or "int... Ns"), and
+ * DW_TAG_GNU_template_template_param ("template<typename...> class ItType").
  *
  * Returns true if the primary was emitted, false if a pre-condition failed
  * (unresolvable base name or value parameter type).  When false, callers must
@@ -83,30 +292,15 @@ static bool type__emit_template_fwd_decl(struct type *ctype,
 	if (type__base_name(ctype, base_name, sizeof(base_name)) == NULL)
 		return false;
 
-	/* Bail if any value param type can't be resolved — emitting
-	 * "void N" would produce uncompilable output. */
-	struct template_value_param *check;
-	list_for_each_entry(check, &ctype->template_value_params, tag.node) {
-		if (cu__type(cu, check->tag.type) == NULL)
-			return false;
-	}
-
-	/* Same check for value params inside a parameter pack */
-	struct template_parameter_pack *pack_check = ctype->template_parameter_pack;
-	if (pack_check != NULL && !list_empty(&pack_check->params)) {
-		struct tag *first_param = list_first_entry(&pack_check->params,
-							   struct tag, node);
-		if (first_param->tag == DW_TAG_template_value_parameter) {
-			struct template_value_param *vp =
-				(struct template_value_param *)first_param;
-			if (cu__type(cu, vp->tag.type) == NULL)
-				return false;
-		}
-	}
+	if (type__has_unresolvable_value_params(ctype, cu))
+		return false;
 
 	fputs("template<", fp);
 
 	/*
+	 * Four-way decl_order merge — keep in sync with
+	 * __emit_template_template_param() which has the same loop.
+	 *
 	 * Merge-iterate type params, value params, and pack in declaration
 	 * order.  DWARF stores them as separate tag types, so they land on
 	 * separate lists, but the decl_order field (set during DWARF loading)
@@ -116,23 +310,28 @@ static bool type__emit_template_fwd_decl(struct type *ctype,
 		list_first_entry(&ctype->template_type_params, struct template_type_param, tag.node);
 	struct template_value_param *tvp = list_empty(&ctype->template_value_params) ? NULL :
 		list_first_entry(&ctype->template_value_params, struct template_value_param, tag.node);
+	struct template_template_param *ttp2 = list_empty(&ctype->template_template_params) ? NULL :
+		list_first_entry(&ctype->template_template_params, struct template_template_param, tag.node);
 	struct template_parameter_pack *pack = ctype->template_parameter_pack;
 	bool pack_emitted = (pack == NULL);
 
-	while (ttp != NULL || tvp != NULL || !pack_emitted) {
+	while (ttp != NULL || tvp != NULL || ttp2 != NULL || !pack_emitted) {
 		uint16_t ttp_ord = ttp ? ttp->decl_order : UINT16_MAX;
 		uint16_t tvp_ord = tvp ? tvp->decl_order : UINT16_MAX;
+		uint16_t ttp2_ord = ttp2 ? ttp2->decl_order : UINT16_MAX;
 		uint16_t pack_ord = !pack_emitted ? pack->decl_order : UINT16_MAX;
 
 		if (!first)
 			fputs(", ", fp);
 
-		if (ttp != NULL && ttp_ord <= tvp_ord && ttp_ord <= pack_ord) {
+		if (ttp != NULL && ttp_ord <= tvp_ord && ttp_ord <= ttp2_ord && ttp_ord <= pack_ord) {
 			fprintf(fp, "typename %s", ttp->name ?: "");
 			ttp = (ttp->tag.node.next == &ctype->template_type_params) ? NULL :
 				list_next_entry(ttp, tag.node);
-		} else if (tvp != NULL && tvp_ord <= ttp_ord && tvp_ord <= pack_ord) {
+		} else if (tvp != NULL && tvp_ord <= ttp_ord && tvp_ord <= ttp2_ord && tvp_ord <= pack_ord) {
 			char type_name[128];
+			/* ptype guaranteed non-NULL: pre-scanned by
+			 * type__has_unresolvable_value_params() */
 			struct tag *ptype = cu__type(cu, tvp->tag.type);
 
 			fprintf(fp, "%s %s",
@@ -140,6 +339,10 @@ static bool type__emit_template_fwd_decl(struct type *ctype,
 				tvp->name ?: "");
 			tvp = (tvp->tag.node.next == &ctype->template_value_params) ? NULL :
 				list_next_entry(tvp, tag.node);
+		} else if (ttp2 != NULL && ttp2_ord <= ttp_ord && ttp2_ord <= tvp_ord && ttp2_ord <= pack_ord) {
+			emit_template_template_param(ttp2, cu, fp);
+			ttp2 = (ttp2->tag.node.next == &ctype->template_template_params) ? NULL :
+				list_next_entry(ttp2, tag.node);
 		} else {
 			type__emit_template_pack_param(ctype, cu, fp);
 			pack_emitted = true;
