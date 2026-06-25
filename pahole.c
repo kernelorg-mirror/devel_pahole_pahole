@@ -86,6 +86,8 @@ static LIST_HEAD(class_names);
 static char separator = '\t';
 
 static bool compilable;
+static bool emit_variables;
+static uint32_t emit_variables_counter;
 static struct type_emissions emissions;
 
 static struct conf_fprintf conf = {
@@ -458,6 +460,45 @@ static void class_formatter(struct class *class, struct cu *cu, uint32_t id)
 		if (type__emit_definitions(tag, cu, &emissions, stdout)) {
 			tag__fprintf(tag, cu, &conf, stdout);
 			putchar(';');
+		}
+
+		if (emit_variables && !class->type.declaration) {
+			/*
+			 * Emit a dummy global variable to force the compiler to
+			 * keep this type's DWARF info when the output is
+			 * recompiled.  Without a variable instantiation, compilers
+			 * omit unreferenced type definitions from DWARF.
+			 */
+			/* Re-read name: type__emit_definitions() may have
+			 * disambiguated it (e.g. "irte" → "irte__1") */
+			name = class__name(class);
+			if (name != NULL) {
+				const uint16_t t = tag->tag;
+				/* Match the keyword used in the definition;
+				 * enums and typedefs need their own keywords
+				 * to avoid "defined as wrong kind of tag" */
+				const char *kw = t == DW_TAG_union_type ? "union" :
+					t == DW_TAG_enumeration_type ? "enum" :
+					t == DW_TAG_typedef ? "" :
+					(t == DW_TAG_class_type &&
+					 !conf.classes_as_structs) ? "class" :
+					"struct";
+
+				/* Use a pointer to avoid C++ default
+				 * construction errors for types with
+				 * const/reference members */
+				printf("\n%s%s%s *__pahole_type_%u;\n",
+				       kw, kw[0] ? " " : "",
+				       name, emit_variables_counter++);
+			} else if (typedef_alias != NULL) {
+				const char *tname = type__name(tag__type(typedef_alias));
+
+				/* Pointer avoids C++ default construction
+				 * errors, same as the named-struct path. */
+				if (tname != NULL)
+					printf("\n%s *__pahole_type_%u;\n",
+					       tname, emit_variables_counter++);
+			}
 		}
 	} else {
 		tag__fprintf(tag, cu, &conf, stdout);
@@ -1162,6 +1203,7 @@ ARGP_PROGRAM_VERSION_HOOK_DEF = dwarves_print_version;
 #define ARGP_with_embedded_flexible_array 349
 #define ARGP_btf_attributes	   350
 #define ARGP_features		   351
+#define ARGP_emit_variables	   352
 
 /* --btf_features=feature1[,feature2,..] allows us to specify
  * a list of requested BTF features or "default" to enable all default
@@ -1708,6 +1750,11 @@ static const struct argp_option pahole__options[] = {
 		.doc  = "Emit compilable types"
 	},
 	{
+		.name = "emit_variables",
+		.key  = ARGP_emit_variables,
+		.doc  = "Emit dummy variables for each type (use with --compile to preserve types in DWARF on recompilation)"
+	},
+	{
 		.name = "structs",
 		.key  = ARGP_just_structs,
 		.doc  = "Show just structs",
@@ -1933,6 +1980,9 @@ static error_t pahole__options_parser(int key, char *arg,
                   type_emissions__init(&emissions, &conf);
                   conf.no_semicolon = true;
                   conf.strip_inline = true;
+		  break;
+	case ARGP_emit_variables:
+		  emit_variables = true;
 		  break;
 	case ARGP_flat_arrays: conf.flat_arrays = 1;	break;
 	case ARGP_suppress_aligned_attribute:
@@ -3555,6 +3605,11 @@ int main(int argc, char *argv[])
 
 	if (argp_parse(&pahole__argp, argc, argv, 0, &remaining, NULL)) {
 		argp_help(&pahole__argp, stderr, ARGP_HELP_SEE, argv[0]);
+		goto out;
+	}
+
+	if (emit_variables && !compilable) {
+		fputs("pahole: --emit_variables requires --compile\n", stderr);
 		goto out;
 	}
 

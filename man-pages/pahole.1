@@ -131,6 +131,14 @@ In the example provided it will use the BTF info if available, otherwise will
 look for a DWARF file matching the running kernel build-id.
 
 .TP
+.B \-\-emit_variables
+Emit a dummy global variable for each type when used with \fB\-\-compile\fR,
+ensuring that compilers preserve the type definitions in DWARF when the
+output is recompiled.  Without variable instantiations, compilers omit
+unreferenced types from DWARF, making round-trip verification impossible.
+Requires \fB\-\-compile\fR.
+
+.TP
 .B \-\-skip_emitting_atomic_typedefs
 Do not emit 'typedef _Atomic int atomic_int' & friends when used with options
 like --compile.
