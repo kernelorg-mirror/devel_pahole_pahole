@@ -975,6 +975,35 @@ found:
 	return pos;
 }
 
+struct tag *cu__find_type_by_base_name(const struct cu *cu, const char *base_name, type_id_t *idp)
+{
+	if (cu == NULL || base_name == NULL)
+		return NULL;
+
+	uint32_t id;
+	struct tag *pos;
+	cu__for_each_type(cu, id, pos) {
+		struct type *type;
+		char bf[256];
+
+		if (!tag__is_type(pos))
+			continue;
+
+		type = tag__type(pos);
+		if (type->declaration)
+			continue;
+
+		if (type__base_name(type, bf, sizeof(bf)) != NULL &&
+		    strcmp(bf, base_name) == 0) {
+			if (idp != NULL)
+				*idp = id;
+			return pos;
+		}
+	}
+
+	return NULL;
+}
+
 struct tag *cus__find_type_by_name(struct cus *cus, struct cu **cu, const char *name,
 				   const int include_decls, type_id_t *id)
 {
@@ -1376,6 +1405,36 @@ void type__add_template_type_param(struct type *type, struct template_type_param
 void type__add_template_value_param(struct type *type, struct template_value_param *tvparam)
 {
 	list_add_tail(&tvparam->tag.node, &type->template_value_params);
+}
+
+bool type__has_template_params(const struct type *type)
+{
+	return !list_empty(&type->template_type_params) ||
+	       !list_empty(&type->template_value_params) ||
+	       type->template_parameter_pack != NULL;
+}
+
+const char *type__base_name(const struct type *type, char *bf, size_t len)
+{
+	const char *name = type__name(type);
+
+	if (name == NULL || len == 0)
+		return NULL;
+
+	const char *bracket = strchr(name, '<');
+
+	if (bracket == NULL) {
+		snprintf(bf, len, "%s", name);
+	} else {
+		size_t base_len = bracket - name;
+
+		if (base_len >= len)
+			base_len = len - 1;
+		memcpy(bf, name, base_len);
+		bf[base_len] = '\0';
+	}
+
+	return bf;
 }
 
 void type__add_variant_part(struct type *type, struct variant_part *vpart)

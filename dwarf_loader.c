@@ -1136,6 +1136,7 @@ static int tag__recode_dwarf_bitfield(struct tag *tag, struct cu *cu, uint16_t b
 		if (new_typedef == NULL)
 			return -ENOMEM;
 
+		__type__init(new_typedef);
 		recoded = (struct tag *)new_typedef;
 		recoded->tag = DW_TAG_typedef;
 		recoded->type = id;
@@ -1205,6 +1206,7 @@ static int tag__recode_dwarf_bitfield(struct tag *tag, struct cu *cu, uint16_t b
 		if (new_enum == NULL)
 			return -ENOMEM;
 
+		__type__init(new_enum);
 		recoded = (struct tag *)new_enum;
 		recoded->tag = DW_TAG_enumeration_type;
 		recoded->top_level = 1;

@@ -173,6 +173,7 @@ struct conf_fprintf {
 	uint8_t	   skip_emitting_errors:1;
 	uint8_t    skip_emitting_modifier:1;
 	uint8_t	   skip_enum_subprograms:1;
+	uint8_t	   emit_template_declarations:1;
 };
 
 struct cus;
@@ -207,6 +208,7 @@ struct tag *cus__find_struct_or_union_by_name(struct cus *cus, struct cu **cu,
 void *cu__tag_alloc(struct cu *cu, size_t size);
 void cu__tag_free(struct cu *cu, struct tag *tag);
 struct tag *cu__find_type_by_name(const struct cu *cu, const char *name, const int include_decls, type_id_t *idp);
+struct tag *cu__find_type_by_base_name(const struct cu *cu, const char *base_name, type_id_t *idp);
 struct tag *cus__find_type_by_name(struct cus *cus, struct cu **cu, const char *name,
 				   const int include_decls, type_id_t *id);
 struct function *cus__find_function_at_addr(struct cus *cus, uint64_t addr, struct cu **cu);
@@ -1481,6 +1483,23 @@ static inline struct class_member *class_member__next(struct class_member *membe
 void type__add_member(struct type *type, struct class_member *member);
 void type__add_template_type_param(struct type *type, struct template_type_param *ttparm);
 void type__add_template_value_param(struct type *type, struct template_value_param *tvparam);
+
+/**
+ * type__for_each_template_type_param - iterate thru template type parameters
+ * @type: struct type instance to iterate
+ * @pos: struct template_type_param iterator
+ */
+#define type__for_each_template_type_param(type, pos) \
+	list_for_each_entry(pos, &(type)->template_type_params, tag.node)
+
+/**
+ * type__for_each_template_value_param - iterate thru template value parameters
+ * @type: struct type instance to iterate
+ * @pos: struct template_value_param iterator
+ */
+#define type__for_each_template_value_param(type, pos) \
+	list_for_each_entry(pos, &(type)->template_value_params, tag.node)
+
 void type__add_variant_part(struct type *type, struct variant_part *vpart);
 void variant_part__delete(struct variant_part *vpart, struct cu *cu);
 void variant_part__add_variant(struct variant_part *vpart, struct variant *var);
@@ -1562,6 +1581,26 @@ static __pure inline const char *class__name(struct class *cls)
 {
 	return type__name(&cls->type);
 }
+
+/**
+ * type__has_template_params - check if a type has any C++ template parameters
+ * @type: the type to check
+ *
+ * Returns true if the type has template type params, value params, or
+ * a parameter pack.  Used to gate C++ template emission.
+ */
+bool type__has_template_params(const struct type *type);
+
+/**
+ * type__base_name - extract the template base name, stripping <args>
+ * @type: the type whose name to extract
+ * @bf: output buffer
+ * @len: buffer length
+ *
+ * Copies the portion of type__name() before the first '<' into @bf.
+ * If there is no '<', copies the full name.  Returns @bf.
+ */
+const char *type__base_name(const struct type *type, char *bf, size_t len);
 
 static inline int class__is_struct(const struct class *cls)
 {
