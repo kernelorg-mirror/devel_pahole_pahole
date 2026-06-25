@@ -447,6 +447,14 @@ static void class_formatter(struct class *class, struct cu *cu, uint32_t id)
 		conf.prefix = conf.suffix = NULL;
 
 	if (compilable) {
+		/*
+		 * Enable C++ template declarations when the CU language is
+		 * C++.  This activates the primary template forward declaration
+		 * (in type__emit_definitions) and the "template<>" prefix
+		 * (in __class__fprintf) to produce valid explicit specializations.
+		 */
+		conf.emit_template_declarations = cu__is_c_plus_plus(cu);
+
 		if (type__emit_definitions(tag, cu, &emissions, stdout)) {
 			tag__fprintf(tag, cu, &conf, stdout);
 			putchar(';');
