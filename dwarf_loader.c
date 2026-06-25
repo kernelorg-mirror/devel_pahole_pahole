@@ -3574,6 +3574,58 @@ next:
 				variant->tag.type = dtype->small_id;
 			}
 		}
+
+		/*
+		 * Template parameters are stored in separate lists, not in
+		 * the namespace tag list, so they aren't recoded by the loop
+		 * above.  Recode their type references here so that cu__type()
+		 * can resolve them later (e.g. for C++ template pretty printing).
+		 */
+		struct template_type_param *ttparm;
+		type__for_each_template_type_param(type, ttparm) {
+			struct dwarf_tag *dpos = tag__dwarf(&ttparm->tag);
+			if (dpos->type != 0) {
+				struct dwarf_tag *dtype = dwarf_cu__find_type_by_ref(dcu, dpos, type);
+				if (dtype != NULL)
+					ttparm->tag.type = dtype->small_id;
+				else {
+					tag__print_type_not_found(&ttparm->tag);
+					ttparm->tag.type = 0;
+				}
+			}
+		}
+
+		struct template_value_param *tvparm;
+		type__for_each_template_value_param(type, tvparm) {
+			struct dwarf_tag *dpos = tag__dwarf(&tvparm->tag);
+			if (dpos->type != 0) {
+				struct dwarf_tag *dtype = dwarf_cu__find_type_by_ref(dcu, dpos, type);
+				if (dtype != NULL)
+					tvparm->tag.type = dtype->small_id;
+				else {
+					tag__print_type_not_found(&tvparm->tag);
+					tvparm->tag.type = 0;
+				}
+			}
+		}
+
+		if (type->template_parameter_pack != NULL) {
+			struct template_parameter_pack *pack = type->template_parameter_pack;
+			struct tag *param;
+
+			list_for_each_entry(param, &pack->params, node) {
+				struct dwarf_tag *dpos = tag__dwarf(param);
+				if (dpos->type != 0) {
+					struct dwarf_tag *dtype = dwarf_cu__find_type_by_ref(dcu, dpos, type);
+					if (dtype != NULL)
+						param->type = dtype->small_id;
+					else {
+						tag__print_type_not_found(param);
+						param->type = 0;
+					}
+				}
+			}
+		}
 	}
 
 	return 0;
