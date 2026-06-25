@@ -13,6 +13,149 @@
 #include "dwarves_emit.h"
 #include "dwarves.h"
 
+static void type__emit_template_pack_param(const struct type *ctype,
+					   const struct cu *cu, FILE *fp)
+{
+	struct template_parameter_pack *pack = ctype->template_parameter_pack;
+
+	if (list_empty(&pack->params)) {
+		fprintf(fp, "typename... %s", pack->name ?: "");
+		return;
+	}
+
+	struct tag *first_param = list_first_entry(&pack->params, struct tag, node);
+
+	if (first_param->tag == DW_TAG_template_type_parameter) {
+		fprintf(fp, "typename... %s", pack->name ?: "");
+	} else if (first_param->tag == DW_TAG_template_value_parameter) {
+		struct template_value_param *vp = (struct template_value_param *)first_param;
+		char type_name[128];
+		struct tag *ptype = cu__type(cu, vp->tag.type);
+
+		if (ptype == NULL) {
+			fprintf(fp, "typename... %s", pack->name ?: "");
+		} else {
+			fprintf(fp, "%s... %s",
+				tag__name(ptype, cu, type_name, sizeof(type_name), NULL),
+				pack->name ?: "");
+		}
+	} else {
+		fprintf(fp, "typename... %s", pack->name ?: "");
+	}
+}
+
+/**
+ * type__emit_template_fwd_decl - emit a C++ primary template forward declaration
+ * @ctype: the type whose template parameters to emit
+ * @cu: the compilation unit (needed to resolve parameter types)
+ * @fp: output file
+ *
+ * For a type like "FixedArray<int, 10>" with template parameters T=int, N=10,
+ * this emits:
+ *
+ *   template<typename T, int N>
+ *   struct FixedArray;
+ *
+ * This forward declaration is required before an explicit specialization
+ * (template<> struct FixedArray<int, 10> { ... };) can appear in valid C++.
+ *
+ * The parameter list is built from the structured DWARF template parameter
+ * DIEs rather than from the instantiated name, so we get the original
+ * parameter names (T, N, Ts) and kinds (typename vs value type).
+ *
+ * Handles DW_TAG_template_type_parameter ("typename T"),
+ * DW_TAG_template_value_parameter ("int N"), and
+ * DW_TAG_template_parameter_pack ("typename... Ts" or "int... Ns").
+ *
+ * Returns true if the primary was emitted, false if a pre-condition failed
+ * (unresolvable base name or value parameter type).  When false, callers must
+ * not emit a template<> specialization prefix — that would produce invalid C++.
+ */
+static bool type__emit_template_fwd_decl(struct type *ctype,
+					  const struct cu *cu, FILE *fp)
+{
+	char base_name[256];
+	bool first = true;
+
+	if (ctype->primary_template_emitted)
+		return true;
+
+	if (type__base_name(ctype, base_name, sizeof(base_name)) == NULL)
+		return false;
+
+	/* Bail if any value param type can't be resolved — emitting
+	 * "void N" would produce uncompilable output. */
+	struct template_value_param *check;
+	list_for_each_entry(check, &ctype->template_value_params, tag.node) {
+		if (cu__type(cu, check->tag.type) == NULL)
+			return false;
+	}
+
+	/* Same check for value params inside a parameter pack */
+	struct template_parameter_pack *pack_check = ctype->template_parameter_pack;
+	if (pack_check != NULL && !list_empty(&pack_check->params)) {
+		struct tag *first_param = list_first_entry(&pack_check->params,
+							   struct tag, node);
+		if (first_param->tag == DW_TAG_template_value_parameter) {
+			struct template_value_param *vp =
+				(struct template_value_param *)first_param;
+			if (cu__type(cu, vp->tag.type) == NULL)
+				return false;
+		}
+	}
+
+	fputs("template<", fp);
+
+	/*
+	 * Merge-iterate type params, value params, and pack in declaration
+	 * order.  DWARF stores them as separate tag types, so they land on
+	 * separate lists, but the decl_order field (set during DWARF loading)
+	 * preserves the original declaration order across all three.
+	 */
+	struct template_type_param *ttp = list_empty(&ctype->template_type_params) ? NULL :
+		list_first_entry(&ctype->template_type_params, struct template_type_param, tag.node);
+	struct template_value_param *tvp = list_empty(&ctype->template_value_params) ? NULL :
+		list_first_entry(&ctype->template_value_params, struct template_value_param, tag.node);
+	struct template_parameter_pack *pack = ctype->template_parameter_pack;
+	bool pack_emitted = (pack == NULL);
+
+	while (ttp != NULL || tvp != NULL || !pack_emitted) {
+		uint16_t ttp_ord = ttp ? ttp->decl_order : UINT16_MAX;
+		uint16_t tvp_ord = tvp ? tvp->decl_order : UINT16_MAX;
+		uint16_t pack_ord = !pack_emitted ? pack->decl_order : UINT16_MAX;
+
+		if (!first)
+			fputs(", ", fp);
+
+		if (ttp != NULL && ttp_ord <= tvp_ord && ttp_ord <= pack_ord) {
+			fprintf(fp, "typename %s", ttp->name ?: "");
+			ttp = (ttp->tag.node.next == &ctype->template_type_params) ? NULL :
+				list_next_entry(ttp, tag.node);
+		} else if (tvp != NULL && tvp_ord <= ttp_ord && tvp_ord <= pack_ord) {
+			char type_name[128];
+			struct tag *ptype = cu__type(cu, tvp->tag.type);
+
+			fprintf(fp, "%s %s",
+				tag__name(ptype, cu, type_name, sizeof(type_name), NULL),
+				tvp->name ?: "");
+			tvp = (tvp->tag.node.next == &ctype->template_value_params) ? NULL :
+				list_next_entry(tvp, tag.node);
+		} else {
+			type__emit_template_pack_param(ctype, cu, fp);
+			pack_emitted = true;
+		}
+
+		first = false;
+	}
+
+	fprintf(fp, ">\n%s %s;\n\n",
+		tag__is_union(&ctype->namespace.tag) ? "union" : "struct",
+		base_name);
+
+	ctype->primary_template_emitted = 1;
+	return true;
+}
+
 void type_emissions__init(struct type_emissions *emissions, struct conf_fprintf *conf_fprintf)
 {
 	INIT_LIST_HEAD(&emissions->base_type_definitions);
@@ -214,10 +357,10 @@ static int typedef__emit_definitions(struct tag *tdef, struct cu *cu,
 
 		if (type__name(ctype) == NULL) {
 			type__emit_definitions(type__tag(ctype), cu, emissions, fp);
-			type__emit(type__tag(ctype), cu, "typedef", type__name(def), NULL, fp);
+			type__emit(type__tag(ctype), cu, "typedef", type__name(def), emissions, fp);
 			goto out;
 		} else if (type__emit_definitions(type, cu, emissions, fp))
-			type__emit(type, cu, NULL, NULL, NULL, fp);
+			type__emit(type, cu, NULL, NULL, emissions, fp);
 	}
 	}
 
@@ -239,7 +382,8 @@ out:
 	return 1;
 }
 
-static int type__emit_fwd_decl(struct type *ctype, struct type_emissions *emissions, FILE *fp)
+static int type__emit_fwd_decl(struct type *ctype, const struct cu *cu,
+			       struct type_emissions *emissions, FILE *fp)
 {
 	/* Have we already emitted this in this CU? */
 	if (ctype->fwd_decl_emitted)
@@ -259,9 +403,30 @@ static int type__emit_fwd_decl(struct type *ctype, struct type_emissions *emissi
 		return 0;
 	}
 
+	if (strchr(name, '<') &&
+	    emissions->conf_fprintf &&
+	    emissions->conf_fprintf->emit_template_declarations) {
+		/*
+		 * C++ requires the primary template to be declared
+		 * before any explicit specialization.  If we can't
+		 * reconstruct the primary, skip this declaration
+		 * entirely — both "struct Foo<int>;" and
+		 * "template<> struct Foo<int>;" are ill-formed
+		 * without a preceding primary template.
+		 */
+		if (cu == NULL || !type__has_template_params(ctype) ||
+		    !type__emit_template_fwd_decl(ctype, cu, fp)) {
+			fprintf(fp, "/* skipped: primary template for %s not reconstructible */\n",
+				name);
+			ctype->fwd_decl_emitted = 1;
+			return 0;
+		}
+		fputs("template<> ", fp);
+	}
+
 	fprintf(fp, "%s %s;\n",
 		tag__is_union(&ctype->namespace.tag) ? "union" : "struct",
-		type__name(ctype));
+		name);
 	type_emissions__add_fwd_decl(emissions, ctype);
 	return 1;
 }
@@ -397,10 +562,10 @@ next_indirection:
 			if (type__name(tag__type(type)) == NULL)
 				type__emit_definitions(type, cu, emissions, fp);
 
-			return type__emit_fwd_decl(tag__type(type), emissions, fp);
+			return type__emit_fwd_decl(tag__type(type), cu, emissions, fp);
 		}
 		if (type__emit_definitions(type, cu, emissions, fp))
-			type__emit(type, cu, NULL, NULL, NULL, fp);
+			type__emit(type, cu, NULL, NULL, emissions, fp);
 		return 1;
 	case DW_TAG_subroutine_type:
 		return ftype__emit_definitions(tag__ftype(type), cu,
@@ -487,12 +652,54 @@ int type__emit_definitions(struct tag *tag, struct cu *cu,
 		if (tag__emit_definitions(&pos->tag, cu, emissions, fp))
 			fputc('\n', fp);
 
+	/*
+	 * Resolve template value parameter types so that e.g. a
+	 * custom enum used as a non-type parameter is defined
+	 * before the template specialization that uses it.
+	 */
+	if (emissions->conf_fprintf &&
+	    emissions->conf_fprintf->emit_template_declarations) {
+		if (!list_empty(&ctype->template_value_params)) {
+			struct template_value_param *tvp;
+			type__for_each_template_value_param(ctype, tvp)
+				if (tag__emit_definitions(&tvp->tag, cu, emissions, fp))
+					fputc('\n', fp);
+		}
+		/* Also resolve value params inside template parameter packs */
+		if (ctype->template_parameter_pack) {
+			struct tag *param;
+			list_for_each_entry(param, &ctype->template_parameter_pack->params, node)
+				if (param->tag == DW_TAG_template_value_parameter)
+					if (tag__emit_definitions(param, cu, emissions, fp))
+						fputc('\n', fp);
+		}
+	}
+
+	/*
+	 * For C++ template instantiations, emit a primary template forward
+	 * declaration before the explicit specialization body that the caller
+	 * will print.  For example, for "FixedArray<int, 10>" this emits:
+	 *
+	 *   template<typename T, int N>
+	 *   struct FixedArray;
+	 *
+	 * Without this, "template<> struct FixedArray<int, 10> { ... };" is
+	 * not valid C++ — it requires a preceding primary template declaration.
+	 *
+	 * Gated on emit_template_declarations (set in --compile mode for C++
+	 * CUs) so that non-compile output and C output remain unchanged.
+	 */
+	if (emissions->conf_fprintf &&
+	    emissions->conf_fprintf->emit_template_declarations &&
+	    type__has_template_params(ctype))
+		type__emit_template_fwd_decl(ctype, cu, fp);
+
 	return 1;
 }
 
 void type__emit(struct tag *tag, struct cu *cu,
 		const char *prefix, const char *suffix,
-		struct type_emissions *emissions __maybe_unused, FILE *fp)
+		struct type_emissions *emissions, FILE *fp)
 {
 	struct type *ctype = tag__type(tag);
 
@@ -503,6 +710,28 @@ void type__emit(struct tag *tag, struct cu *cu,
 			.suffix	    = suffix,
 			.emit_stats = 1,
 		};
+
+		if (emissions && emissions->conf_fprintf)
+			conf.emit_template_declarations =
+				emissions->conf_fprintf->emit_template_declarations;
+
+		/*
+		 * If the primary template wasn't reconstructible,
+		 * suppress the body too — "struct Foo<int, 10> { };"
+		 * is ill-formed without a preceding primary.  Match
+		 * the fwd-decl bail policy for consistency.
+		 */
+		if (conf.emit_template_declarations &&
+		    type__name(ctype) != NULL &&
+		    strchr(type__name(ctype), '<') &&
+		    type__has_template_params(ctype) &&
+		    !ctype->primary_template_emitted) {
+			fprintf(fp, "/* skipped: primary template for %s not reconstructible */\n",
+				type__name(ctype));
+			ctype->definition_emitted = 1;
+			return;
+		}
+
 		tag__fprintf(tag, cu, &conf, fp);
 		fputc('\n', fp);
 	}

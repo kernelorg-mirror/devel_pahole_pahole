@@ -376,6 +376,9 @@ static void function__show(struct function *func, struct cu *cu)
 	if (func->abstract_origin || func->declaration)
 		return;
 
+	if (compilable_output)
+		conf.emit_template_declarations = cu__is_c_plus_plus(cu);
+
 	if (!show_all_matches) {
 		fstats = fn_stats__find(func->name);
 
