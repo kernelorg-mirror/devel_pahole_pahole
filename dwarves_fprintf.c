@@ -866,6 +866,7 @@ inner_struct:
 		tconf.suffix	   = name;
 		tconf.emit_stats   = 0;
 		tconf.suppress_offset_comment = suppress_offset_comment;
+		tconf.emit_template_declarations = 0;
 	}
 
 	const char *modifier;
@@ -957,6 +958,8 @@ print_modifier: {
 				class__find_holes(cclass);
 
 			tconf.type_spacing -= 8;
+			/* Inline expansion, not top-level: don't emit template<> */
+			tconf.emit_template_declarations = 0;
 			printed += __class__fprintf(cclass, cu, &tconf, fp);
 		}
 		break;
@@ -1154,6 +1157,10 @@ static size_t union__fprintf(struct type *type, const struct cu *cu,
 
 	if (indent >= (int)sizeof(tabs))
 		indent = sizeof(tabs) - 1;
+
+	if (conf->emit_template_declarations && type__has_template_params(type) &&
+	    type->primary_template_emitted && conf->suffix == NULL)
+		printed += fprintf(fp, "template<>\n%.*s", indent, tabs);
 
 	if (conf->prefix != NULL)
 		printed += fprintf(fp, "%s ", conf->prefix);
@@ -1655,7 +1662,29 @@ static size_t __class__fprintf(struct class *class, const struct cu *cu,
 	const char *current_accessibility = NULL;
 	struct conf_fprintf cconf = conf ? *conf : conf_fprintf__defaults;
 	const uint16_t t = type->namespace.tag.tag;
-	size_t printed = fprintf(fp, "%s%s%s%s%s",
+	/*
+	 * For C++ explicit specializations, print "template<>\n" before the
+	 * struct/class line.  Together with the primary template forward
+	 * declaration emitted by type__emit_template_fwd_decl(), this produces
+	 * valid C++:
+	 *
+	 *   template<typename T, int N>
+	 *   struct FixedArray;          // emitted by type__emit_template_fwd_decl()
+	 *
+	 *   template<>
+	 *   struct FixedArray<int, 10> { ... };   // emitted here
+	 */
+	size_t printed = 0;
+	int indent = cconf.indent;
+
+	if (indent >= (int)sizeof(tabs))
+		indent = sizeof(tabs) - 1;
+
+	if (cconf.emit_template_declarations && type__has_template_params(type) &&
+	    type->primary_template_emitted && cconf.suffix == NULL)
+		printed += fprintf(fp, "template<>\n%.*s", indent, tabs);
+
+	printed += fprintf(fp, "%s%s%s%s%s",
 				 cconf.prefix ?: "", cconf.prefix ? " " : "",
 				 ((cconf.classes_as_structs ||
 				   t == DW_TAG_structure_type) ? "struct" :
@@ -1663,10 +1692,6 @@ static size_t __class__fprintf(struct class *class, const struct cu *cu,
 							"interface"),
 				 type__name(type) ? " " : "",
 				 type__name(type) ?: "");
-	int indent = cconf.indent;
-
-	if (indent >= (int)sizeof(tabs))
-		indent = sizeof(tabs) - 1;
 
 	if (cconf.cachelinep == NULL)
 		cconf.cachelinep = &cacheline;
