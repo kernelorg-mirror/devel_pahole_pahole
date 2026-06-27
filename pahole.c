@@ -401,7 +401,9 @@ static void nr_methods_formatter(struct structure *st)
 
 static void size_formatter(struct class *class, struct cu *cu __maybe_unused, uint32_t id __maybe_unused)
 {
-	printf("%s%c%d%c%u\n", class__name(class), separator,
+	const char *fmt = conf.hex_fmt ? "%s%c%#x%c%u\n" : "%s%c%d%c%u\n";
+
+	printf(fmt, class__name(class), separator,
 	       class__size(class), separator, tag__is_union(class__tag(class)) ? 0 : class->nr_holes);
 }
 
@@ -523,20 +525,23 @@ static void print_packable_info(struct class *c, struct cu *cu, uint32_t id)
 		if (tdef != NULL)
 			name = class__name(tag__class(tdef));
 	}
-	if (name != NULL)
-		printf("%s%c%zd%c%zd%c%zd\n",
-		       name, separator,
+	if (name != NULL) {
+		const char *fmt = conf.hex_fmt ? "%s%c%#zx%c%#zx%c%#zx\n" : "%s%c%zd%c%zd%c%zd\n";
+
+		printf(fmt, name, separator,
 		       orig_size, separator,
 		       new_size, separator,
 		       savings);
-	else
-		printf("%s(%d)%c%zd%c%zd%c%zd\n",
-		       tag__decl_file(t, cu),
+	} else {
+		const char *fmt = conf.hex_fmt ? "%s(%d)%c%#zx%c%#zx%c%#zx\n" : "%s(%d)%c%zd%c%zd%c%zd\n";
+
+		printf(fmt, tag__decl_file(t, cu),
 		       tag__decl_line(t, cu),
 		       separator,
 		       orig_size, separator,
 		       new_size, separator,
 		       savings);
+	}
 }
 
 static void (*stats_formatter)(struct structure *st);
