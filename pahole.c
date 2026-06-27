@@ -1950,7 +1950,8 @@ static error_t pahole__options_parser(int key, char *arg,
 		  conf.suppress_offset_comment = 1;	break;
 	case 'R': reorganize = 1;			break;
 	case 'r': conf.rel_offset = 1;			break;
-	case 'S': show_reorg_steps = 1;			break;
+	case 'S': show_reorg_steps = 1;
+		  reorganize = 1;			break;
 	case 's': formatter = size_formatter;		break;
 	case 'T': stats_formatter = nr_definitions_formatter;
 		  formatter = NULL;			break;
