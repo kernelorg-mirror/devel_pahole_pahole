@@ -549,9 +549,13 @@ static void (*stats_formatter)(struct structure *st);
 static void print_stats(void)
 {
 	struct structure *pos;
+	uint32_t printed = 0;
 
-	list_for_each_entry(pos, &structures__list, node)
+	list_for_each_entry(pos, &structures__list, node) {
 		stats_formatter(pos);
+		if (conf.count && ++printed == conf.count)
+			break;
+	}
 }
 
 static struct class *class__filter(struct class *class, struct cu *cu,
@@ -560,10 +564,16 @@ static struct class *class__filter(struct class *class, struct cu *cu,
 static void (*formatter)(struct class *class,
 			 struct cu *cu, uint32_t id) = class_formatter;
 
+static uint32_t printed_classes;
+static bool print_classes_done;
+
 static void print_classes(struct cu *cu)
 {
 	uint32_t id;
 	struct class *pos;
+
+	if (print_classes_done)
+		return;
 
 	cu__for_each_struct_or_union(cu, id, pos) {
 		bool existing_entry;
@@ -605,21 +615,43 @@ static void print_classes(struct cu *cu)
 			continue; // we'll print it at the end, in order, out of structures__tree
 		else if (formatter != NULL)
 			formatter(pos, cu, id);
+		else
+			/* Stats mode: data collection only, --count
+			 * is applied in print_stats() or
+			 * __print_ordered_classes(). */
+			continue;
+
+		/* class_formatter() silently returns for anonymous
+		 * structs without typedef aliases — don't count
+		 * those towards --count. */
+		if (formatter == class_formatter &&
+		    class__name(pos) == NULL &&
+		    cu__find_first_typedef_of_type(cu, id) == NULL &&
+		    !class__include_nested_anonymous)
+			continue;
+
+		if (conf.count && ++printed_classes == conf.count) {
+			print_classes_done = true;
+			return;
+		}
 	}
 }
 
 static void __print_ordered_classes(struct rb_root *root)
 {
 	struct rb_node *next = rb_first(root);
+	uint32_t printed = 0;
 
 	while (next) {
 		struct structure *st = rb_entry(next, struct structure, rb_node);
 
 		class_formatter(st->class, st->cu, st->id);
 
+		if (conf.count && ++printed == conf.count)
+			break;
+
 		next = rb_next(&st->rb_node);
 	}
-
 }
 
 static void resort_add(struct rb_root *resorted, struct structure *str)
