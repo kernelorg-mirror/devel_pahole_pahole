@@ -77,6 +77,10 @@ if ! echo "$output" | grep -q "Moving"; then
 	error_log "FAIL: --show_reorg_steps did not show reorganization steps"
 	test_fail
 fi
+if ! echo "$output" | grep -q "saved"; then
+	error_log "FAIL: --show_reorg_steps did not show savings"
+	test_fail
+fi
 info_log "--show_reorg_steps: ok"
 
 test_pass
