@@ -550,8 +550,15 @@ static void print_stats(void)
 {
 	struct structure *pos;
 	uint32_t printed = 0;
+	uint32_t skipped = 0;
 
+	/* Stats output never goes through __print_ordered_classes(),
+	 * so --skip/--count must always be applied here. */
 	list_for_each_entry(pos, &structures__list, node) {
+		if (conf.skip && skipped < conf.skip) {
+			skipped++;
+			continue;
+		}
 		stats_formatter(pos);
 		if (conf.count && ++printed == conf.count)
 			break;
@@ -565,6 +572,7 @@ static void (*formatter)(struct class *class,
 			 struct cu *cu, uint32_t id) = class_formatter;
 
 static uint32_t printed_classes;
+static uint32_t skipped_classes;
 static bool print_classes_done;
 
 static void print_classes(struct cu *cu)
@@ -609,6 +617,11 @@ static void print_classes(struct cu *cu)
 			}
 		}
 
+		if (conf.skip && skipped_classes < conf.skip) {
+			skipped_classes++;
+			continue;
+		}
+
 		if (show_packable && !global_verbose)
 			print_packable_info(pos, cu, id);
 		else if (sort_output && formatter == class_formatter)
@@ -640,10 +653,16 @@ static void print_classes(struct cu *cu)
 static void __print_ordered_classes(struct rb_root *root)
 {
 	struct rb_node *next = rb_first(root);
-	uint32_t printed = 0;
+	uint32_t skipped = 0, printed = 0;
 
 	while (next) {
 		struct structure *st = rb_entry(next, struct structure, rb_node);
+
+		if (conf.skip && skipped < conf.skip) {
+			skipped++;
+			next = rb_next(&st->rb_node);
+			continue;
+		}
 
 		class_formatter(st->class, st->cu, st->id);
 
