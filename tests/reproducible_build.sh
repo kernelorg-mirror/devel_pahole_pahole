@@ -35,8 +35,8 @@ for threads in $(seq $nr_proc) ; do
 	pahole=$!
 	# HACK: Wait a bit for pahole to start its threads
 	sleep 1s
-	# PID part to remove ps output headers
-	nr_threads_started=$(ps -L -C pahole | grep -v PID | wc -l)
+	# Count threads for this specific pahole process (not system-wide)
+	nr_threads_started=$(ps -L -p $pahole 2>/dev/null | grep -v PID | wc -l)
 		((nr_threads_started -= 1)) # main thread doesn't count, it waits to join
 
 	if [ $threads != $nr_threads_started ] ; then
@@ -44,7 +44,6 @@ for threads in $(seq $nr_proc) ; do
 		test_fail
 	fi
 
-	# ps -L -C pahole | grep -v PID | nl
 	verbose_log "$nr_threads_started threads started"
 	wait $pahole
 	rm -f $outdir/bpftool.output.vmlinux.btf.parallel.reproducible
