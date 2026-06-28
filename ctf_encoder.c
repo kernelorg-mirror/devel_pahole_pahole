@@ -142,7 +142,7 @@ static int subroutine_type__encode(struct tag *tag, uint32_t core_id, struct ctf
 	return 0;
 }
 
-static int enumeration_type__encode(struct tag *tag, const struct cu *cu, uint32_t core_id, struct ctf *ctf)
+static int enumeration_type__encode(struct tag *tag, uint32_t core_id, struct ctf *ctf)
 {
 	struct type *etype = tag__type(tag);
 	int64_t position;
@@ -171,7 +171,7 @@ static int enumeration_type__encode(struct tag *tag, const struct cu *cu, uint32
 	return 0;
 }
 
-static void tag__encode_ctf(struct tag *tag, const struct cu *cu, uint32_t core_id, struct ctf *ctf)
+static void tag__encode_ctf(struct tag *tag, uint32_t core_id, struct ctf *ctf)
 {
 	switch (tag->tag) {
 	case DW_TAG_base_type:
@@ -201,7 +201,7 @@ static void tag__encode_ctf(struct tag *tag, const struct cu *cu, uint32_t core_
 		subroutine_type__encode(tag, core_id, ctf);
 		break;
 	case DW_TAG_enumeration_type:
-		enumeration_type__encode(tag, cu, core_id, ctf);
+		enumeration_type__encode(tag, core_id, ctf);
 		break;
 	}
 }
@@ -264,7 +264,7 @@ int cu__encode_ctf(struct cu *cu, int verbose)
 	uint32_t id;
 	struct tag *pos;
 	cu__for_each_type(cu, id, pos)
-		tag__encode_ctf(pos, cu, id, ctf);
+		tag__encode_ctf(pos, id, ctf);
 
 	struct hlist_head hash_addr[HASHADDR__SIZE];
 

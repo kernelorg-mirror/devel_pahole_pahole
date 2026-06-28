@@ -172,6 +172,7 @@ struct conf_fprintf {
 	uint8_t	   skip_emitting_atomic_typedefs:1;
 	uint8_t	   skip_emitting_errors:1;
 	uint8_t    skip_emitting_modifier:1;
+	uint8_t	   skip_enum_subprograms:1;
 };
 
 struct cus;
@@ -1353,6 +1354,10 @@ static inline struct class_member *class_member__next(struct class_member *membe
  * type__for_each_enumerator - iterate thru the enumerator entries
  * @type: struct type instance to iterate
  * @pos: struct enumerator iterator
+ *
+ * Rust enums may contain DW_TAG_subprogram entries (methods) alongside
+ * DW_TAG_enumerator entries.  Callers must check pos->tag.tag before
+ * accessing enumerator-specific fields (name, value).
  */
 #define type__for_each_enumerator(type, pos) \
 	struct list_head *__type__for_each_enumerator_head = \
@@ -1366,6 +1371,8 @@ static inline struct class_member *class_member__next(struct class_member *membe
  * @type: struct type instance to iterate
  * @pos: struct enumerator iterator
  * @n: struct enumerator temp iterator
+ *
+ * See type__for_each_enumerator: entries may be DW_TAG_subprogram.
  */
 #define type__for_each_enumerator_safe_reverse(type, pos, n)		   \
 	if (namespace__shared_tags(&(type)->namespace)) /* Do nothing */ ; else \

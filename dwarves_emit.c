@@ -121,7 +121,11 @@ static int enumeration__emit_definitions(struct tag *tag, const struct cu *cu,
 		return 0;
 	}
 
-	enumeration__fprintf(tag, cu, conf, fp);
+	/* Rust enum methods (DW_TAG_subprogram) are valid for pretty-printing
+	 * but produce uncompilable C; suppress them in the emit path. */
+	struct conf_fprintf econf = *conf;
+	econf.skip_enum_subprograms = 1;
+	enumeration__fprintf(tag, cu, &econf, fp);
 	fputs(";\n", fp);
 
 	// See comment on enumeration__fprintf(), it seems this happens with DWARF as well

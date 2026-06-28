@@ -155,6 +155,9 @@ static int dwarf_cu__init(struct dwarf_cu *dcu, struct cu *cu)
 	dcu->hash_types = cu__malloc(cu, sizeof(struct hlist_head) * hashtags_size);
 	if (!dcu->hash_types) {
 		cu__free(cu, dcu->hash_tags);
+		/* Defensive cleanup: NULL the pointer so the partially-initialized
+		 * struct has a consistent state if the caller inspects it. */
+		dcu->hash_tags = NULL;
 		return -ENOMEM;
 	}
 
@@ -4626,6 +4629,7 @@ static int cus__merge_and_process_cu(struct cus *cus, struct conf_load *conf,
 {
 	uint8_t pointer_size, offset_size;
 	struct dwarf_cu *dcu = NULL;
+	bool cu_added = false;
 	Dwarf_Off off = 0, noff;
 	struct cu *cu = NULL;
 	size_t cuhl;
@@ -4644,9 +4648,12 @@ static int cus__merge_and_process_cu(struct cus *cus, struct conf_load *conf,
 			if (cu == NULL || cu__set_common(cu, conf, mod, elf) != 0)
 				goto out_abort;
 
-			dcu = zalloc(sizeof(*dcu));
+			dcu = cu__zalloc(cu, sizeof(*dcu));
 			if (dcu == NULL)
 				goto out_abort;
+
+			cu->priv = dcu;
+			cu->dfops = &dwarf__ops;
 
 			/* Merged cu tends to need a lot more memory.
 			 * Let us start with max_hashtags__bits and
@@ -4664,11 +4671,10 @@ static int cus__merge_and_process_cu(struct cus *cus, struct conf_load *conf,
 
 			dcu->cu = cu;
 			dcu->type_unit = type_dcu;
-			cu->priv = dcu;
-			cu->dfops = &dwarf__ops;
 			cu->language = attr_numeric(cu_die, DW_AT_language);
 			cu->producer_clang = attr_producer_clang(cu_die);
 			cus__add(cus, cu);
+			cu_added = true;
 		}
 
 		Dwarf_Die child;
@@ -4714,6 +4720,8 @@ static int cus__merge_and_process_cu(struct cus *cus, struct conf_load *conf,
 	return 0;
 
 out_abort:
+	if (cu_added)
+		cus__remove(cus, cu);
 	dwarf_cu__delete(cu);
 	cu__delete(cu);
 	return DWARF_CB_ABORT;

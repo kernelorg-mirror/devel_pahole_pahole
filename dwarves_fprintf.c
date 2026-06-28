@@ -452,15 +452,15 @@ static int enumeration__max_entry_name_len(struct type *type)
 	struct enumerator *pos;
 
 	type__for_each_enumerator(type, pos) {
-		int len = 0;
+		int len;
 
-		if (pos->tag.tag == DW_TAG_enumerator)
-			len = strlen(enumerator__name(pos));
-		else if (pos->tag.tag == DW_TAG_subprogram) {
-			const char *fname = function__name(tag__function(&pos->tag));
-			if (fname)
-				len = strlen(fname);
-		}
+		/* Only enumerators use name-width alignment; subprogram
+		 * names are printed separately and should not inflate
+		 * the padding for enumerator "name = value" lines. */
+		if (pos->tag.tag != DW_TAG_enumerator)
+			continue;
+
+		len = strlen(enumerator__name(pos));
 
 		if (type->max_tag_name_len < len)
 			type->max_tag_name_len = len;
@@ -495,6 +495,10 @@ size_t enumeration__fprintf(const struct tag *tag, const struct cu *cu,
 
 		switch (pos->tag.tag) {
 		case DW_TAG_subprogram:
+			/* Compilable output cannot have function decls inside
+			 * an enumerator-list; skip when emitting definitions. */
+			if (conf->skip_enum_subprograms)
+				continue;
 			printed += function__fprintf(&pos->tag, cu, conf, fp);
 			break;
 		case DW_TAG_enumerator:
@@ -613,6 +617,8 @@ static const char *__tag__name(const struct tag *tag, const struct cu *cu,
 		const char *fname = function__name(tag__function(tag));
 		if (fname)
 			strncpy(bf, fname, len);
+		else
+			bf[0] = '\0'; /* Avoid uninitialized buffer when fname is NULL */
 		break;
 	}
 	case DW_TAG_pointer_type:
