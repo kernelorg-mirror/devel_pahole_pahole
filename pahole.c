@@ -3381,14 +3381,15 @@ static enum load_steal_kind pahole_stealer(struct cu *cu, struct conf_load *conf
 		return LSK__ABORT;
 	}
 #endif
+	/* Resize types for the target word size before any display path */
+	if (word_size != 0)
+		cu_fixup_word_size_iterator(cu);
+
 	if (class_name == NULL) {
 		if (stats_formatter == nr_methods_formatter) {
 			cu__account_nr_methods(cu);
 			goto dump_it;
 		}
-
-		if (word_size != 0)
-			cu_fixup_word_size_iterator(cu);
 
 		print_classes(cu);
 
