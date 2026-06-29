@@ -429,7 +429,7 @@ static int cu_function_iterator(struct cu *cu, void *cookie __maybe_unused)
 	return 0;
 }
 
-int elf_symtab__show(char *filename)
+static int elf_symtab__show(char *filename)
 {
 	int fd = open(filename, O_RDONLY), err = -1;
 	if (fd < 0)
@@ -497,7 +497,7 @@ out_close:
 	return err;
 }
 
-int elf_symtabs__show(char *filenames[])
+static int elf_symtabs__show(char *filenames[])
 {
 	int i = 0;
 
