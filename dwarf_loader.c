@@ -558,7 +558,7 @@ static uint64_t __libdw_get_uleb128(uint64_t acc, uint32_t i,
 		var = __libdw_get_uleb128 (var, 1, &(addr));	\
 	} while (0)
 
-static uint64_t attr_numeric(Dwarf_Die *die, uint32_t name)
+static uint64_t __attr_numeric(Dwarf_Die *die, uint32_t name, bool little_endian)
 {
 	Dwarf_Attribute attr;
 	uint32_t form;
@@ -598,12 +598,24 @@ static uint64_t attr_numeric(Dwarf_Die *die, uint32_t name)
 	case DW_FORM_block2:
 	case DW_FORM_block4:
 	case DW_FORM_block: {
+		/* Block data is in target byte order, convert to host */
 		Dwarf_Block block;
 		if (dwarf_formblock(&attr, &block) == 0 && block.length > 0) {
 			uint64_t value = 0;
 			size_t n = block.length > sizeof(value) ? sizeof(value) : block.length;
-			memcpy(&value, block.data, n);
-			return le64toh(value);
+			if (little_endian) {
+				memcpy(&value, block.data, n);
+				return le64toh(value);
+			}
+			/*
+			 * BE: the least-significant bytes are at the END of
+			 * the block.  Skip any high bytes that don't fit in
+			 * uint64_t, then accumulate the rest MSB-first.
+			 */
+			size_t off = block.length - n;
+			for (size_t i = 0; i < n; i++)
+				value = (value << 8) | (uint8_t)block.data[off + i];
+			return value;
 		}
 	}
 		break;
@@ -613,6 +625,16 @@ static uint64_t attr_numeric(Dwarf_Die *die, uint32_t name)
 	}
 
 	return 0;
+}
+
+/*
+ * Most callers don't use DW_FORM_block, so this wrapper keeps them unchanged.
+ * When the attribute can be a block (e.g. DW_AT_discr_value), use
+ * __attr_numeric() with the CU's endianness instead.
+ */
+static uint64_t attr_numeric(Dwarf_Die *die, uint32_t name)
+{
+	return __attr_numeric(die, name, true);
 }
 
 static uint64_t attr_alignment(Dwarf_Die *die, struct conf_load *conf)
@@ -1038,7 +1060,7 @@ static struct enumerator *enumerator__new(Dwarf_Die *die, struct cu *cu, struct 
 	if (enumerator != NULL) {
 		tag__init(&enumerator->tag, cu, die);
 		enumerator->name = attr_string(die, DW_AT_name, conf);
-		enumerator->value = attr_numeric(die, DW_AT_const_value);
+		enumerator->value = __attr_numeric(die, DW_AT_const_value, cu->little_endian);
 	}
 
 	return enumerator;
@@ -1127,7 +1149,7 @@ static struct constant *constant__new(Dwarf_Die *die, struct cu *cu, struct conf
 	if (constant != NULL) {
 		tag__init(&constant->tag, cu, die);
 		constant->name = attr_string(die, DW_AT_name, conf);
-		constant->value = attr_numeric(die, DW_AT_const_value);
+		constant->value = __attr_numeric(die, DW_AT_const_value, cu->little_endian);
 	}
 
 	return constant;
@@ -1411,7 +1433,7 @@ static struct class_member *class_member__new(Dwarf_Die *die, struct cu *cu,
 
 		if (!cu__is_c(cu)) {
 			member->accessibility = attr_numeric(die, DW_AT_accessibility);
-			member->const_value   = attr_numeric(die, DW_AT_const_value);
+			member->const_value   = __attr_numeric(die, DW_AT_const_value, cu->little_endian);
 			member->virtuality    = attr_numeric(die, DW_AT_virtuality);
 		}
 		member->hole = 0;
@@ -1520,8 +1542,8 @@ static struct template_value_param *template_value_param__new(Dwarf_Die *die, st
 	if (tvparm != NULL) {
 		tag__init(&tvparm->tag, cu, die);
 		tvparm->name = attr_string(die, DW_AT_name, conf);
-		tvparm->const_value = attr_numeric(die, DW_AT_const_value);
-		tvparm->default_value = attr_numeric(die, DW_AT_default_value);
+		tvparm->const_value = __attr_numeric(die, DW_AT_const_value, cu->little_endian);
+		tvparm->default_value = __attr_numeric(die, DW_AT_default_value, cu->little_endian);
 	}
 
 	return tvparm;
@@ -1629,7 +1651,8 @@ static struct variant *variant__new(Dwarf_Die *die, struct cu *cu, struct conf_l
 
 	if (var != NULL) {
 		tag__init(&var->tag, cu, die);
-		var->discr_value = attr_numeric(die, DW_AT_discr_value);
+		/* DW_AT_discr_value uses DW_FORM_block, needs target endianness */
+		var->discr_value = __attr_numeric(die, DW_AT_discr_value, cu->little_endian);
 		var->name = NULL;
 
 		Dwarf_Die child;
