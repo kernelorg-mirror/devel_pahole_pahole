@@ -153,6 +153,26 @@ struct btf_encoder {
 			  true_signature;
 	uint32_t	  array_index_id;
 	uint32_t	  *type_id_null_adj;
+	/*
+	 * Maps DWARF core_id → actual BTF type id.  Populated by
+	 * btf_encoder__precompute_btf_ids() before encoding begins.
+	 *
+	 * Entry value 0 means "skipped" (e.g. DW_TAG_unspecified_type);
+	 * this is safe as a sentinel because BTF type id 0 is void and
+	 * the first real type id is always >= 1.
+	 *
+	 * tag__nr_btf_ids() is the single source of truth for how many
+	 * BTF ids each DWARF tag consumes; both precompute and encode
+	 * use it so the mapping stays consistent.
+	 */
+	uint32_t	  *btf_id_map;
+	uint32_t	  btf_id_map_sz;
+	/*
+	 * Final extra/skipped counts from btf_encoder__precompute_btf_ids(),
+	 * used to compute the fallback array_index_id when "int" is absent.
+	 */
+	uint32_t	  btf_id_extra;
+	uint32_t	  btf_id_skipped;
 	struct elf_secinfo *secinfo;
 	size_t             seccnt;
 	int                encode_vars;
@@ -743,7 +763,12 @@ static int32_t btf_encoder__tag_type(struct btf_encoder *encoder, uint32_t tag_t
 	if (tag_type == 0)
 		return 0;
 
-	/* Adjust for NULL holes left by dwz alt PU pruning */
+	/* Map is authoritative when it covers this id: entry 0 means
+	 * skipped (DW_TAG_unspecified_type, dwz-pruned) → void. */
+	if (encoder->btf_id_map && tag_type < encoder->btf_id_map_sz)
+		return encoder->btf_id_map[tag_type];
+
+	/* Fallback for map-absent CUs (nr == 0) or out-of-range ids */
 	uint32_t adj = encoder->type_id_null_adj ? encoder->type_id_null_adj[tag_type] : 0;
 
 	return encoder->type_id_off + tag_type - adj;
@@ -1816,20 +1841,6 @@ static void dump_invalid_symbol(const char *msg, const char *sym,
 	fprintf(stderr, "PAHOLE: Error: Use '--btf_encode_force' to ignore such symbols and force emit the btf.\n");
 }
 
-static int tag__check_id_drift(struct btf_encoder *encoder, const struct tag *tag,
-			       uint32_t core_id, uint32_t btf_type_id)
-{
-	if (btf_type_id != (core_id + encoder->type_id_off)) {
-		fprintf(stderr,
-			"%s: %s id drift, core_id: %u, btf_type_id: %u, type_id_off: %u\n",
-			__func__, dwarf_tag_name(tag->tag),
-			core_id, btf_type_id, encoder->type_id_off);
-		return -1;
-	}
-
-	return 0;
-}
-
 static bool type__has_variant_parts(const struct type *type)
 {
 	return !list_empty(&type->variant_parts);
@@ -1893,18 +1904,6 @@ static int32_t btf_encoder__add_struct_type(struct btf_encoder *encoder, struct 
 	return type_id;
 }
 
-static uint32_t array_type__nelems(struct tag *tag)
-{
-	int i;
-	uint32_t nelem = 1;
-	struct array_type *array = tag__array_type(tag);
-
-	for (i = array->dimensions - 1; i >= 0; --i)
-		nelem *= array->nr_entries[i];
-
-	return nelem;
-}
-
 static int32_t btf_encoder__add_enum_type(struct btf_encoder *encoder, struct tag *tag,
 					  const struct cu *cu, struct conf_load *conf_load)
 {
@@ -1939,6 +1938,26 @@ static int32_t btf_encoder__add_enum_type(struct btf_encoder *encoder, struct ta
 	return type_id;
 }
 
+/*
+ * How many BTF type IDs will encoding this tag consume?
+ *  0 — skipped (DW_TAG_unspecified_type)
+ *  1 — the common case
+ *  D — multi-dimensional arrays (one BTF_KIND_ARRAY per dimension)
+ *
+ * Both btf_encoder__precompute_btf_ids() and btf_encoder__encode_tag()
+ * must agree on this; keeping the logic in one place prevents drift.
+ */
+static int tag__nr_btf_ids(const struct tag *tag)
+{
+	if (tag->tag == DW_TAG_unspecified_type)
+		return 0;
+	if (tag->tag == DW_TAG_array_type) {
+		int dims = tag__array_type(tag)->dimensions;
+		return dims < 1 ? 1 : dims;
+	}
+	return 1;
+}
+
 static int btf_encoder__encode_tag(struct btf_encoder *encoder, struct tag *tag,
 				   const struct cu *cu, struct conf_load *conf_load)
 {
@@ -1947,6 +1966,11 @@ static int btf_encoder__encode_tag(struct btf_encoder *encoder, struct tag *tag,
 	struct base_type *bt;
 	const char *name;
 
+	/*
+	 * Any case that returns 0 (skip) must have a matching entry in
+	 * tag__nr_btf_ids(); the precompute map depends on agreement.
+	 * The drift check will catch mismatches at runtime.
+	 */
 	switch (tag->tag) {
 	case DW_TAG_base_type:
 		bt   = tag__base_type(tag);
@@ -1975,10 +1999,35 @@ static int btf_encoder__encode_tag(struct btf_encoder *encoder, struct tag *tag,
 			return btf_encoder__add_ref_type(encoder, BTF_KIND_FWD, 0, name, tag->tag == DW_TAG_union_type);
 		else
 			return btf_encoder__add_struct_type(encoder, tag);
-	case DW_TAG_array_type:
-		/* TODO: Encode one dimension at a time. */
+	case DW_TAG_array_type: {
+		/*
+		 * BTF represents each array dimension as a separate chained
+		 * BTF_KIND_ARRAY node.  Emit from innermost to outermost so
+		 * that each outer node can reference the one just emitted.
+		 * For int a[3][4] (dimensions=2, nr_entries=[3,4]):
+		 *   i=1: ARRAY(type=int,   nelems=4) → id_inner
+		 *   i=0: ARRAY(type=id_inner, nelems=3) → returned id
+		 */
+		struct array_type *at = tag__array_type(tag);
+		int32_t id = ref_type_id;
+		int i;
+
 		encoder->need_index_type = true;
-		return btf_encoder__add_array(encoder, ref_type_id, encoder->array_index_id, array_type__nelems(tag));
+		/*
+		 * Malformed DWARF may produce 0 dimensions; emit one
+		 * BTF_KIND_ARRAY with 0 elements rather than returning the
+		 * bare element type (which would trigger an ID drift error).
+		 */
+		if (at->dimensions == 0) {
+			return btf_encoder__add_array(encoder, id, encoder->array_index_id, 0);
+		}
+		for (i = at->dimensions - 1; i >= 0; --i) {
+			id = btf_encoder__add_array(encoder, id, encoder->array_index_id, at->nr_entries[i]);
+			if (id < 0)
+				return id;
+		}
+		return id;
+	}
 	case DW_TAG_enumeration_type:
 		return btf_encoder__add_enum_type(encoder, tag, cu, conf_load);
 	case DW_TAG_subroutine_type:
@@ -3033,11 +3082,80 @@ static bool ftype__has_uncertain_arg_loc(struct cu *cu, struct ftype *ftype)
 	return false;
 }
 
+/*
+ * Pre-compute the actual BTF type id for every DWARF core_id.
+ *
+ * The linear formula   type_id_off + core_id - null_adj   holds only for a
+ * strict 1-to-1 DWARF→BTF mapping.  Two things break it:
+ *
+ *  • Skipped types (DW_TAG_unspecified_type → encode_tag returns 0): each
+ *    skipped entry shifts all subsequent BTF ids down by 1.
+ *
+ *  • Multi-dimensional arrays: one BTF_KIND_ARRAY is emitted per dimension,
+ *    so a D-dimensional array occupies D consecutive BTF ids.  The "name" of
+ *    the type (the outermost array) lands at base + D - 1, and each inner
+ *    array consumed an extra slot, shifting all later ids up.
+ *
+ * By scanning the types table once before encoding we can fill btf_id_map[]
+ * with the correct expected id for every core_id.  btf_encoder__tag_type()
+ * then reads the map so that any type reference (struct member, pointer base,
+ * typedef chain, …) resolves to the right BTF id even when the referenced
+ * type hasn't been encoded yet.
+ *
+ * Assumes every non-skipped tag appends exactly nr_ids fresh BTF types;
+ * no in-CU dedup occurs (dedup is a separate libbpf btf__dedup() pass).
+ */
+static int btf_encoder__precompute_btf_ids(struct btf_encoder *encoder, struct cu *cu)
+{
+	uint32_t nr = cu->types_table.nr_entries;
+	uint32_t cid, extra = 0, skipped = 0;
+
+	if (!nr)
+		return 0;
+
+	encoder->btf_id_map = calloc(nr, sizeof(*encoder->btf_id_map));
+	if (!encoder->btf_id_map) {
+		fprintf(stderr, "btf_encoder: out of memory for btf_id_map (%u entries)\n", nr);
+		return -ENOMEM;
+	}
+	encoder->btf_id_map_sz = nr;
+
+	/* Mirror cu__for_each_type: valid core_ids are 1 .. nr-1 */
+	for (cid = 1; cid < nr; cid++) {
+		struct tag *t = cu->types_table.entries[cid];
+		uint32_t adj, base;
+		int nr_ids;
+
+		if (!t)
+			continue;
+
+		nr_ids = tag__nr_btf_ids(t);
+		if (nr_ids == 0) {
+			skipped++;
+			continue;
+		}
+
+		adj  = encoder->type_id_null_adj ? encoder->type_id_null_adj[cid] : 0;
+		base = encoder->type_id_off + cid - adj - skipped + extra;
+
+		/*
+		 * Multi-dim arrays consume nr_ids consecutive BTF slots;
+		 * the outermost (the type other entries reference) is the
+		 * last one emitted: base + nr_ids - 1.
+		 */
+		encoder->btf_id_map[cid] = base + (nr_ids - 1);
+		extra += nr_ids - 1;
+	}
+
+	encoder->btf_id_extra   = extra;
+	encoder->btf_id_skipped = skipped;
+	return 0;
+}
+
 int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct conf_load *conf_load)
 {
 	struct llvm_annotation *annot;
-	int btf_type_id, tag_type_id, skipped_types = 0;
-	uint32_t null_types = 0;
+	int btf_type_id, tag_type_id;
 	struct elf_functions *funcs;
 	uint32_t core_id;
 	struct function *fn;
@@ -3094,6 +3212,10 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 		}
 	}
 
+	err = btf_encoder__precompute_btf_ids(encoder, cu);
+	if (err)
+		goto out;
+
 	if (!encoder->has_index_type) {
 		/* cu__find_base_type_by_name() takes "type_id_t *id" */
 		type_id_t id;
@@ -3105,22 +3227,53 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 			uint32_t adj = encoder->type_id_null_adj ? encoder->type_id_null_adj[nr] : 0;
 
 			encoder->has_index_type = false;
-			encoder->array_index_id = encoder->type_id_off + nr - adj;
+			/*
+			 * Point past all encoded CU types.  Must account for
+			 * NULL holes (adj), skipped DW_TAG_unspecified_type
+			 * entries, and extra BTF slots from multi-dim arrays.
+			 */
+			encoder->array_index_id = encoder->type_id_off + nr - adj
+						  - encoder->btf_id_skipped
+						  + encoder->btf_id_extra;
 		}
 	}
 
-	cu__for_each_type_dense(cu, core_id, pos, null_types) {
+	cu__for_each_type(cu, core_id, pos) {
 		btf_type_id = btf_encoder__encode_tag(encoder, pos, cu, conf_load);
 
-		if (btf_type_id == 0) {
-			++skipped_types;
+		if (btf_type_id == 0)
 			continue;
-		}
 
-		if (btf_type_id < 0 ||
-		    tag__check_id_drift(encoder, pos, core_id, btf_type_id + skipped_types + null_types)) {
+		/* Verify actual BTF id matches the pre-computed map entry. */
+		if (btf_type_id < 0) {
+			fprintf(stderr,
+				"%s: error encoding %s (core_id %u): %d\n",
+				__func__, dwarf_tag_name(pos->tag), core_id,
+				btf_type_id);
 			err = -1;
 			goto out;
+		}
+		if (encoder->btf_id_map && core_id < encoder->btf_id_map_sz) {
+			uint32_t expected = encoder->btf_id_map[core_id];
+
+			/* Inverse check: precompute expected skip but encode emitted */
+			if (!expected) {
+				fprintf(stderr,
+					"%s: %s unexpected emit, core_id: %u, btf_type_id: %u "
+					"(precompute predicted skip)\n",
+					__func__, dwarf_tag_name(pos->tag), core_id,
+					(uint32_t)btf_type_id);
+				err = -1;
+				goto out;
+			}
+			if ((uint32_t)btf_type_id != expected) {
+				fprintf(stderr,
+					"%s: %s id drift, core_id: %u, expected: %u, got: %u\n",
+					__func__, dwarf_tag_name(pos->tag), core_id,
+					expected, (uint32_t)btf_type_id);
+				err = -1;
+				goto out;
+			}
 		}
 	}
 
@@ -3134,8 +3287,7 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 		encoder->has_index_type = true;
 	}
 
-	null_types = 0;
-	cu__for_each_type_dense(cu, core_id, pos, null_types) {
+	cu__for_each_type(cu, core_id, pos) {
 		struct namespace *ns;
 		const char *tag_name;
 
@@ -3153,7 +3305,15 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 			continue;
 		}
 
-		btf_type_id = encoder->type_id_off + core_id - null_types;
+		if (!encoder->btf_id_map ||
+		    core_id >= encoder->btf_id_map_sz ||
+		    !encoder->btf_id_map[core_id]) {
+			if (encoder->verbose)
+				fprintf(stderr, "BTF: skipping annotations on unmapped %s (core_id %u)\n",
+					tag_name, core_id);
+			continue;
+		}
+		btf_type_id = (int)encoder->btf_id_map[core_id];
 		ns = tag__namespace(pos);
 		list_for_each_entry(annot, &ns->annots, node) {
 			tag_type_id = btf_encoder__add_decl_tag(encoder, annot->value, btf_type_id, annot->component_idx);
@@ -3222,6 +3382,10 @@ out:
 	 * btf_encoder__tag_type() after this point.
 	 */
 	zfree(&encoder->type_id_null_adj);
+	zfree(&encoder->btf_id_map);
+	encoder->btf_id_map_sz = 0;
+	encoder->btf_id_extra = 0;
+	encoder->btf_id_skipped = 0;
 	encoder->cu = NULL;
 	return err;
 }
