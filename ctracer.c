@@ -455,10 +455,15 @@ static int class__emit_ostra_converter(struct tag *tag)
 		else {
 			fputc(':', fp_converter);
 			n = snprintf(p, plen, ",\n\t\t\t ");
+			/* Clamp to available space to prevent underflow */
+			if (n > plen)
+				n = plen;
 			plen -= n; p += n;
 		}
 		fprintf(fp_converter, "%%u");
 		n = snprintf(p, plen, "obj.%s", class_member__name(pos));
+		if (n > plen)
+			n = plen;
 		plen -= n; p += n;
 		emit_struct_member_table_entry(fp_fields, field++,
 					       class_member__name(pos),
