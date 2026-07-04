@@ -963,6 +963,12 @@ failure:
 
 	type_emissions__init(&emissions, NULL);
 
+	/* ctracer needs extra debug info for emitting kprobes and
+	 * collecting struct field access data.  Passing NULL conf to
+	 * cus__load_file() segfaults since dwarf_loader dereferences
+	 * conf unconditionally. */
+	struct conf_load conf_load = { };
+
         /*
          * Create the methods_cus (Compilation Units) object where we will
 	 * load the objects where we'll look for functions pointers to the
@@ -981,7 +987,7 @@ failure:
          * for kernel modules, but could be "*.o" in the future when we support
          * uprobes for user space tracing.
 	 */
-	if (dirname != NULL && cus__load_dir(methods_cus, NULL, dirname, glob,
+	if (dirname != NULL && cus__load_dir(methods_cus, &conf_load, dirname, glob,
 					     recursive) != 0) {
 		fprintf(stderr, "ctracer: couldn't load DWARF info "
 				"from %s dir with glob %s\n",
@@ -998,7 +1004,7 @@ failure:
 					"info from %s\n", filename);
 			goto out;
 		}
-		err = cus__load_file(methods_cus, NULL, filename);
+		err = cus__load_file(methods_cus, &conf_load, filename);
 		if (err != 0) {
 			cus__print_error_msg("ctracer", methods_cus, filename, err);
 			goto out;
@@ -1062,6 +1068,13 @@ failure:
 	      "%}\n\n", fp_methods);
 
 	fputs("\n#include \"ctracer_classes.h\"\n\n", fp_collector);
+
+	/* Initialize the CU blacklist before any cus__for_each_cu call,
+	 * since cu_filter() checks it via strlist__has_entry(). */
+	cu_blacklist = strlist__new(true);
+	if (cu_blacklist != NULL)
+		strlist__load(cu_blacklist, cu_blacklist_filename);
+
 	class__find_aliases(class_name);
 	class__find_pointers(class_name);
 
@@ -1069,10 +1082,6 @@ failure:
 	fputc('\n', fp_collector);
 
 	class__emit_ostra_converter(class);
-
-	cu_blacklist = strlist__new(true);
-	if (cu_blacklist != NULL)
-		strlist__load(cu_blacklist, cu_blacklist_filename);
 
 	cus__for_each_cu(methods_cus, cu_find_methods_iterator,
 			 class_name, cu_filter);
