@@ -1056,9 +1056,11 @@ failure:
 		goto out;
 	}
 
-	fputs("%{\n"
-	      "#include </home/acme/git/pahole/lib/ctracer_relay.h>\n"
-	      "%}\n"
+	/* Use the installed runtime header path from cmake */
+	fprintf(fp_methods, "%%{\n"
+		"#include <%s/ctracer_relay.h>\n"
+		"%%}\n", DWARVES_RUNTIME_DIR);
+	fputs(
 	      "function ctracer__method_hook(probe_type, func, object, state_len)\n"
 	      "%{\n"
 	      "\tctracer__method_hook(_stp_gettimeofday_ns(), "

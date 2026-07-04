@@ -143,6 +143,8 @@ target_link_libraries(codiff dwarves)
 set(ctracer_SRCS ctracer.c)
 add_executable(ctracer ${ctracer_SRCS})
 target_link_libraries(ctracer dwarves dwarves_emit dwarves_reorganize ${ELF_LIBRARY})
+target_compile_definitions(ctracer PRIVATE
+	DWARVES_RUNTIME_DIR="${CMAKE_INSTALL_PREFIX}/share/dwarves/runtime")
 
 set(dtagnames_SRCS dtagnames.c)
 add_executable(dtagnames ${dtagnames_SRCS})
