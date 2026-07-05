@@ -98,33 +98,32 @@ get_size() {
 }
 
 # --- --sizes shows resize effect on struct containing union ---
-# Note: class__resize_LP adjusts struct size and member offsets but does
-# not update individual member byte_size fields, so the struct reports 16
-# (not the ideal 12) because union/long members still show size 8.
+# struct with_union { int flags; union ptr_or_long data; long next; }
+# LP64: int(4) + 4-byte hole + union(8) + long(8) = 24 bytes
+# LP32: int(4) + union(4) + long(4) = 12 bytes, hole disappears
 sizes_64=$(pahole --sizes "$obj" 2>/dev/null)
 sizes_32=$(pahole --sizes --word_size=4 "$obj" 2>/dev/null)
 
 sz_wu_64=$(get_size "$sizes_64" "with_union")
 sz_wu_32=$(get_size "$sizes_32" "with_union")
-if [ "$sz_wu_64" = "24" ] && [ "$sz_wu_32" = "16" ]; then
-	info_log "   with_union --word_size=4: 24 -> 16 bytes: ok"
+if [ "$sz_wu_64" = "24" ] && [ "$sz_wu_32" = "12" ]; then
+	info_log "   with_union --word_size=4: 24 -> 12 bytes: ok"
 else
 	error_log "FAIL: with_union resize unexpected (64=$sz_wu_64, 32=$sz_wu_32)"
 	test_fail
 fi
 
 # --- Nested union/struct mutual recursion via --sizes ---
+# struct outer_with_nested { int tag; union nested n; void *link; }
+# union nested { struct inner_s{long a; void *b;} s; long raw; }
+# LP64: int(4) + 4-byte hole + union(16) + ptr(8) = 32 bytes
+# LP32: int(4) + union(8: max of inner_s{4+4} vs long(4)) + ptr(4) = 16
 sz_owu_64=$(get_size "$sizes_64" "outer_with_nested")
 sz_owu_32=$(get_size "$sizes_32" "outer_with_nested")
-if [ -n "$sz_owu_64" ] && [ -n "$sz_owu_32" ]; then
-	if [ "$sz_owu_32" -lt "$sz_owu_64" ]; then
-		info_log "   outer_with_nested --word_size=4: $sz_owu_64 -> $sz_owu_32 bytes: ok"
-	else
-		error_log "FAIL: outer_with_nested did not shrink ($sz_owu_64 -> $sz_owu_32)"
-		test_fail
-	fi
+if [ "$sz_owu_64" = "32" ] && [ "$sz_owu_32" = "16" ]; then
+	info_log "   outer_with_nested --word_size=4: 32 -> 16 bytes: ok"
 else
-	error_log "FAIL: could not get outer_with_nested sizes"
+	error_log "FAIL: outer_with_nested resize unexpected (64=$sz_owu_64, 32=$sz_owu_32)"
 	test_fail
 fi
 

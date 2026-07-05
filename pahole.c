@@ -904,14 +904,16 @@ static void class__resize_LP(struct tag *tag, struct cu *cu)
 		}
 
 		switch (type->tag) {
-		case DW_TAG_base_type: {
-			struct base_type *bt = tag__base_type(type);
-			char bf[64];
-			const char *name = base_type__name(bt, bf, sizeof(bf));
-			if (strcmp(name, "long int") != 0 &&
-			    strcmp(name, "long unsigned int") != 0)
+		case DW_TAG_base_type:
+			/*
+			 * Base types are already resized in the first
+			 * pass of cu_fixup_word_size_iterator(). Only
+			 * word-size-dependent types (long variants with
+			 * .size = 0 in the name-to-size table) need
+			 * offset adjustment here.
+			 */
+			if (!base_type__is_word_size_dependent(tag__base_type(type)))
 				break;
-		}
 			/* fallthru */
 		case DW_TAG_pointer_type:
 			diff = word_size_diff;
@@ -930,10 +932,13 @@ static void class__resize_LP(struct tag *tag, struct cu *cu)
 
 		if (diff != 0) {
 			struct class_member *m = tag__class_member(tag_pos);
+			/* Update the member's cached size to match the new word size */
 			if (original_word_size > word_size) {
+				m->byte_size -= diff;
 				class->type.size -= diff;
 				class__subtract_offsets_from(class, m, diff);
 			} else {
+				m->byte_size += diff;
 				class->type.size += diff;
 				class__add_offsets_from(class, m, diff);
 			}
@@ -979,7 +984,16 @@ static void union__find_new_size(struct tag *tag, struct cu *cu)
 		else if (tag__is_struct(type))
 			class__resize_LP(type, cu);
 
+		/*
+		 * Base types are already resized in the first pass
+		 * of cu_fixup_word_size_iterator(), so tag__size()
+		 * returns the correct word-size-adjusted value.
+		 */
 		size = tag__size(type, cu);
+
+		/* Update member's cached size so callers see the resized value */
+		tag__class_member(tag_pos)->byte_size = size;
+
 		if (size > max_size)
 			max_size = size;
 	}
@@ -1012,11 +1026,13 @@ static void tag__fixup_word_size(struct tag *tag, struct cu *cu)
 		 */
 		if (!bt->name)
 			return;
-		char bf[64];
-		const char *name = base_type__name(bt, bf, sizeof(bf));
-
-		if (strcmp(name, "long int") == 0 ||
-		    strcmp(name, "long unsigned int") == 0)
+		/*
+		 * base_type__name_to_size() handles all "long" name
+		 * variants (long int, unsigned long, long unsigned int,
+		 * etc.) via its table — entries with .size = 0 return
+		 * cu->addr_size, which is already set to word_size.
+		 */
+		if (base_type__is_word_size_dependent(bt))
 			bt->bit_size = word_size * 8;
 	}
 		break;
@@ -1038,8 +1054,21 @@ static void cu_fixup_word_size_iterator(struct cu *cu)
 
 	uint32_t id;
 	struct tag *pos;
-	cu__for_each_type(cu, id, pos)
-		tag__fixup_word_size(pos, cu);
+
+	/*
+	 * Two passes: first fix base types so their bit_size reflects
+	 * the target word_size, then fix structs/unions which need
+	 * correct base type sizes for member resize calculations.
+	 */
+	cu__for_each_type(cu, id, pos) {
+		if (pos->tag == DW_TAG_base_type)
+			tag__fixup_word_size(pos, cu);
+	}
+
+	cu__for_each_type(cu, id, pos) {
+		if (pos->tag != DW_TAG_base_type)
+			tag__fixup_word_size(pos, cu);
+	}
 }
 
 static void cu__account_nr_methods(struct cu *cu)
