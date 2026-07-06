@@ -1251,8 +1251,6 @@ bool set_btf_features_initial;
 
 static void init_btf_features(void)
 {
-	int i;
-
 	/* Only set initial values once, as multiple --btf_features=
 	 * may be specified on command-line, and setting values
 	 * again could clobber values.   The aim is to enable
@@ -1260,16 +1258,14 @@ static void init_btf_features(void)
 	 */
 	if (set_btf_features_initial)
 		return;
-	for (i = 0; i < ARRAY_SIZE(btf_features); i++)
+	for (size_t i = 0; i < ARRAY_SIZE(btf_features); i++)
 		*btf_features[i].conf_value = btf_features[i].initial_value;
 	set_btf_features_initial = true;
 }
 
 static struct btf_feature *find_btf_feature(char *name)
 {
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(btf_features); i++) {
+	for (size_t i = 0; i < ARRAY_SIZE(btf_features); i++) {
 		if (strcmp(name, btf_features[i].name) == 0)
 			return &btf_features[i];
 	}
@@ -1287,9 +1283,7 @@ static void enable_btf_feature(struct btf_feature *feature)
 
 static void show_supported_btf_features(FILE *output)
 {
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(btf_features); i++) {
+	for (size_t i = 0; i < ARRAY_SIZE(btf_features); i++) {
 		if (btf_features[i].feature_check && !btf_features[i].feature_check())
 			continue;
 		if (i > 0)
@@ -1301,7 +1295,7 @@ static void show_supported_btf_features(FILE *output)
 
 static void btf_features__enable_default(void)
 {
-	for (int i = 0; i < ARRAY_SIZE(btf_features); i++) {
+	for (size_t i = 0; i < ARRAY_SIZE(btf_features); i++) {
 		if (btf_features[i].default_enabled)
 			enable_btf_feature(&btf_features[i]);
 	}
