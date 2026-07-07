@@ -865,7 +865,7 @@ static int32_t btf_encoder__add_func_proto_for_ftype(struct btf_encoder *encoder
 
 	ftype__for_each_parameter(ftype, param) {
 		name = parameter__name(param);
-		type_id = param->tag.type == 0 ? 0 : encoder->type_id_off + param->tag.type;
+		type_id = btf_encoder__tag_type(encoder, param->tag.type);
 		++param_idx;
 		if (btf_encoder__add_func_param(encoder, name, type_id, param_idx == nr_params))
 			return -1;
@@ -1284,7 +1284,7 @@ static int32_t btf_encoder__save_func(struct btf_encoder *encoder, struct functi
 	state->addr = function__addr(fn);
 	state->elf = func;
 	state->nr_parms = ftype->nr_parms + (ftype->unspec_parms ? 1 : 0);
-	state->ret_type_id = ftype->tag.type == 0 ? 0 : encoder->type_id_off + ftype->tag.type;
+	state->ret_type_id = btf_encoder__tag_type(encoder, ftype->tag.type);
 	if (state->nr_parms > 0) {
 		state->parms = zalloc(state->nr_parms * sizeof(*state->parms));
 		if (!state->parms) {
@@ -1363,8 +1363,7 @@ static int32_t btf_encoder__save_func(struct btf_encoder *encoder, struct functi
 			goto out;
 		}
 		state->parms[param_idx].name_off = str_off;
-		state->parms[param_idx].type_id = param->tag.type == 0 ? 0 :
-						  encoder->type_id_off + param->tag.type;
+		state->parms[param_idx].type_id = btf_encoder__tag_type(encoder, param->tag.type);
 		param_idx++;
 	}
 	if (ftype->unspec_parms)
@@ -1864,7 +1863,7 @@ static int32_t btf_encoder__add_struct_type(struct btf_encoder *encoder, struct 
 		 * is required.
 		 */
 		name = class_member__name(pos);
-		if (btf_encoder__add_field(encoder, name, encoder->type_id_off + pos->tag.type,
+		if (btf_encoder__add_field(encoder, name, btf_encoder__tag_type(encoder, pos->tag.type),
 					   pos->bitfield_size, pos->bit_offset))
 			return -1;
 	}
@@ -1879,7 +1878,7 @@ static int32_t btf_encoder__add_struct_type(struct btf_encoder *encoder, struct 
 				if (variant->tag.type == 0)
 					continue;
 
-				uint32_t ref_type_id = encoder->type_id_off + variant->tag.type;
+				uint32_t ref_type_id = btf_encoder__tag_type(encoder, variant->tag.type);
 
 				if (btf_encoder__add_field(encoder, variant->name, ref_type_id, 0, 0))
 					return -1;
@@ -1940,7 +1939,7 @@ static int btf_encoder__encode_tag(struct btf_encoder *encoder, struct tag *tag,
 				   const struct cu *cu, struct conf_load *conf_load)
 {
 	/* single out type 0 as it represents special type "void" */
-	uint32_t ref_type_id = tag->type == 0 ? 0 : encoder->type_id_off + tag->type;
+	uint32_t ref_type_id = btf_encoder__tag_type(encoder, tag->type);
 	struct base_type *bt;
 	const char *name;
 
@@ -2766,7 +2765,7 @@ static int btf_encoder__encode_cu_variables(struct btf_encoder *encoder)
 			continue;
 		}
 
-		type = var->ip.tag.type + encoder->type_id_off;
+		type = btf_encoder__tag_type(encoder, var->ip.tag.type);
 		linkage = var->external ? BTF_VAR_GLOBAL_ALLOCATED : BTF_VAR_STATIC;
 
 		if (encoder->verbose) {
@@ -3029,7 +3028,7 @@ int btf_encoder__encode_cu(struct btf_encoder *encoder, struct cu *cu, struct co
 		type_id_t id;
 		if (cu__find_base_type_by_name(cu, "int", &id)) {
 			encoder->has_index_type = true;
-			encoder->array_index_id = encoder->type_id_off + id;
+			encoder->array_index_id = btf_encoder__tag_type(encoder, id);
 		} else {
 			encoder->has_index_type = false;
 			encoder->array_index_id = encoder->type_id_off + cu->types_table.nr_entries;
