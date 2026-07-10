@@ -46,23 +46,23 @@ void qux(int __tag(param_a) arg) {}
 EOF
 )
 
-# tags order is not guaranteed
-sort_tags=$(cat <<EOF
-{
-delete tags_arr;
-if (match(\$0,/^(.*) (void .*)/,tags_and_proto)) {
-	tags  = tags_and_proto[1];
-	proto = tags_and_proto[2];
-	split(tags, tags_arr ,/ /);
-	asort(tags_arr);
-	for (t in tags_arr) printf "%s ", tags_arr[t];
-	print proto;
-} else {
-	print \$0;
+# tags order is not guaranteed — sort the space-separated tags
+# preceding "void" on each line (POSIX awk, no gawk extensions)
+sort_tags() {
+	while IFS= read -r line; do
+		case "$line" in
+		*" void "*)
+			proto="void ${line#*void }"
+			tags="${line%% void *}"
+			sorted=$(echo "$tags" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')
+			echo "$sorted $proto"
+			;;
+		*)
+			echo "$line"
+			;;
+		esac
+	done
 }
-}
-EOF
-)
 
 expected=$(cat <<EOF
 a b c void foo(void);
@@ -77,7 +77,7 @@ run_test() {
 	local tmpobj=$2
 
 	info_log "Testing with $compiler"
-	out=$(pfunct -P -F btf $tmpobj | awk "$sort_tags" | sort)
+	out=$(pfunct -P -F btf $tmpobj | sort_tags | sort)
 	d=$(diff -u <(echo "$expected") <(echo "$out"))
 
 	if [[ "$d" == "" ]]; then

@@ -1015,7 +1015,7 @@ struct tag *cu__find_type_by_base_name(const struct cu *cu, const char *base_nam
 }
 
 static struct tag *__cu__find_struct_by_name(const struct cu *cu, const char *name,
-					     const int include_decls, bool unions, type_id_t *idp)
+					     const int include_decls, type_id_t *idp)
 {
 	if (cu == NULL || name == NULL)
 		return NULL;
@@ -1025,7 +1025,7 @@ static struct tag *__cu__find_struct_by_name(const struct cu *cu, const char *na
 	cu__for_each_type(cu, id, pos) {
 		struct type *type;
 
-		if (!(tag__is_struct(pos) || (unions && tag__is_union(pos))))
+		if (!tag__is_struct(pos))
 			continue;
 
 		type = tag__type(pos);
@@ -1049,11 +1049,11 @@ found:
 struct tag *cu__find_struct_by_name(const struct cu *cu, const char *name,
 				    const int include_decls, type_id_t *idp)
 {
-	return __cu__find_struct_by_name(cu, name, include_decls, false, idp);
+	return __cu__find_struct_by_name(cu, name, include_decls, idp);
 }
 
 static struct tag *__cus__find_struct_by_name(struct cus *cus, struct cu **cu, const char *name,
-					      const int include_decls, bool unions, type_id_t *id)
+					      const int include_decls, type_id_t *id)
 {
 	struct tag *tag = NULL;
 	struct cu *pos;
@@ -1061,8 +1061,7 @@ static struct tag *__cus__find_struct_by_name(struct cus *cus, struct cu **cu, c
 	cus__lock(cus);
 
 	list_for_each_entry(pos, &cus->cus, node) {
-		/* Don't shadow the outer 'tag' — we need to return it */
-		tag = __cu__find_struct_by_name(pos, name, include_decls, unions, id);
+		tag = __cu__find_struct_by_name(pos, name, include_decls, id);
 		if (tag != NULL) {
 			if (cu != NULL)
 				*cu = pos;
@@ -1078,7 +1077,7 @@ static struct tag *__cus__find_struct_by_name(struct cus *cus, struct cu **cu, c
 struct tag *cus__find_struct_by_name(struct cus *cus, struct cu **cu, const char *name,
 				     const int include_decls, type_id_t *idp)
 {
-	return __cus__find_struct_by_name(cus, cu, name, include_decls, false, idp);
+	return __cus__find_struct_by_name(cus, cu, name, include_decls, idp);
 }
 
 struct function *cu__find_function_at_addr(const struct cu *cu,
