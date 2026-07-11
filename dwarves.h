@@ -1004,6 +1004,7 @@ static inline const char *parameter__name(const struct parameter *parm)
 struct template_type_param {
 	struct tag	 tag;
 	const char	 *name;
+	uint16_t	 decl_order;
 };
 
 void template_type_param__delete(struct template_type_param *ttparam, struct cu *cu);
@@ -1013,6 +1014,7 @@ struct template_value_param {
 	const char	 *name;
 	uint64_t	 const_value;
 	uint64_t	 default_value;
+	uint16_t	 decl_order;
 };
 
 void template_value_param__delete(struct template_value_param *ttparam, struct cu *cu);
@@ -1024,6 +1026,7 @@ struct template_parameter_pack {
 	struct tag	 tag;
 	const char	 *name;
 	struct list_head params;
+	uint16_t	 decl_order;
 };
 
 void template_parameter_pack__delete(struct template_parameter_pack *pack, struct cu *cu);
@@ -1335,6 +1338,7 @@ struct type {
 	uint8_t		 declaration:1;
 	uint8_t		 definition_emitted:1;
 	uint8_t		 fwd_decl_emitted:1;
+	uint8_t		 primary_template_emitted:1; /* set by type__emit_template_fwd_decl, checked by __class__fprintf/union__fprintf for template<> prefix */
 	uint8_t		 resized:1;
 	uint8_t		 is_signed_enum:1;
 	struct list_head template_type_params;

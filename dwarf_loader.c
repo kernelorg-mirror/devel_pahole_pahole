@@ -2786,6 +2786,7 @@ static int die__process_class(Dwarf_Die *die, struct type *class,
 {
 	const bool is_union = tag__is_union(&class->namespace.tag);
 	int member_idx = 0;
+	uint16_t template_param_idx = 0;
 
 	do {
 		switch (dwarf_tag(die)) {
@@ -2796,6 +2797,7 @@ static int die__process_class(Dwarf_Die *die, struct type *class,
 			if (class->template_parameter_pack == NULL)
 				return -ENOMEM;
 
+			class->template_parameter_pack->decl_order = template_param_idx++;
 			continue;
 		case DW_TAG_GNU_formal_parameter_pack:
 		case DW_TAG_GNU_template_template_param:
@@ -2820,22 +2822,17 @@ static int die__process_class(Dwarf_Die *die, struct type *class,
 			if (ttparm == NULL)
 				return -ENOMEM;
 
+			ttparm->decl_order = template_param_idx++;
 			type__add_template_type_param(class, ttparm);
 			continue;
 		}
 		case DW_TAG_template_value_parameter: {
-			/*
-			 * FIXME: probably we'll have to attach this as a list of
-			 * template parameters to use at class__fprintf time...
-			 *
-			 * See:
-			 * https://gcc.gnu.org/wiki/TemplateParmsDwarf
-			 */
 			struct template_value_param *tvparm = template_value_param__new(die, cu, conf);
 
 			if (tvparm == NULL)
 				return -ENOMEM;
 
+			tvparm->decl_order = template_param_idx++;
 			type__add_template_value_param(class, tvparm);
 			continue;
 		}
