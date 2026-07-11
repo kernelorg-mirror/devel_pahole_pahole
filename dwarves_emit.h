@@ -32,7 +32,8 @@ int ftype__emit_definitions(struct ftype *ftype, struct cu *cu,
 int type__emit_definitions(struct tag *tag, struct cu *cu,
 			   struct type_emissions *emissions, FILE *fp);
 void type__emit(struct tag *tag_type, struct cu *cu,
-		const char *prefix, const char *suffix, FILE *fp);
+		const char *prefix, const char *suffix,
+		struct type_emissions *emissions, FILE *fp);
 struct type *type_emissions__find_definition(const struct type_emissions *temissions,
 					     uint16_t tag, const char *name);
 

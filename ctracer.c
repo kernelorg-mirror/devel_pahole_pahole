@@ -620,7 +620,7 @@ static void emit_list_of_types(struct list_head *list)
 		type__emit_definitions(pos->class, pos->cu, &emissions,
 				       fp_classes);
 		type->definition_emitted = 1;
-		type__emit(pos->class, pos->cu, NULL, NULL, fp_classes);
+		type__emit(pos->class, pos->cu, NULL, NULL, NULL, fp_classes);
 		tag__type(pos->class)->definition_emitted = 1;
 		fputc('\n', fp_classes);
 	}
@@ -641,7 +641,7 @@ static int class__emit_classes(struct tag *tag, struct cu *cu)
 
 	type__emit_definitions(tag, cu, &emissions, fp_classes);
 
-	type__emit(tag, cu, NULL, NULL, fp_classes);
+	type__emit(tag, cu, NULL, NULL, NULL, fp_classes);
 	fputs("\n/* class aliases */\n\n", fp_classes);
 
 	emit_list_of_types(&aliases);

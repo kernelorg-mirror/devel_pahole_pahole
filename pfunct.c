@@ -341,7 +341,7 @@ retry_return_type:
 
 	if (tag__is_type(type) && !tag__type(type)->definition_emitted) {
 		type__emit_definitions(type, cu, &emissions, fp);
-		type__emit(type, cu, NULL, NULL, fp);
+		type__emit(type, cu, NULL, NULL, &emissions, fp);
 	}
 do_parameters:
 	ftype__for_each_parameter(proto, pos) {
@@ -360,7 +360,7 @@ do_parameters:
 		} else if (tag__is_type(type) && !tag__type(type)->definition_emitted) {
 			type__emit_definitions(type, cu, &emissions, fp);
 			if (!tag__is_typedef(type))
-				type__emit(type, cu, NULL, NULL, fp);
+				type__emit(type, cu, NULL, NULL, &emissions, fp);
 			putchar('\n');
 		}
 	}

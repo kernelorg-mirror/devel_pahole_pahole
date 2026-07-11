@@ -214,10 +214,10 @@ static int typedef__emit_definitions(struct tag *tdef, struct cu *cu,
 
 		if (type__name(ctype) == NULL) {
 			type__emit_definitions(type__tag(ctype), cu, emissions, fp);
-			type__emit(type__tag(ctype), cu, "typedef", type__name(def), fp);
+			type__emit(type__tag(ctype), cu, "typedef", type__name(def), NULL, fp);
 			goto out;
 		} else if (type__emit_definitions(type, cu, emissions, fp))
-			type__emit(type, cu, NULL, NULL, fp);
+			type__emit(type, cu, NULL, NULL, NULL, fp);
 	}
 	}
 
@@ -400,7 +400,7 @@ next_indirection:
 			return type__emit_fwd_decl(tag__type(type), emissions, fp);
 		}
 		if (type__emit_definitions(type, cu, emissions, fp))
-			type__emit(type, cu, NULL, NULL, fp);
+			type__emit(type, cu, NULL, NULL, NULL, fp);
 		return 1;
 	case DW_TAG_subroutine_type:
 		return ftype__emit_definitions(tag__ftype(type), cu,
@@ -491,7 +491,8 @@ int type__emit_definitions(struct tag *tag, struct cu *cu,
 }
 
 void type__emit(struct tag *tag, struct cu *cu,
-		const char *prefix, const char *suffix, FILE *fp)
+		const char *prefix, const char *suffix,
+		struct type_emissions *emissions __maybe_unused, FILE *fp)
 {
 	struct type *ctype = tag__type(tag);
 
