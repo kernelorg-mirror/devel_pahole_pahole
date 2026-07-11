@@ -350,6 +350,36 @@ found:
 	return 0;
 }
 
+bool base_type__is_word_size_dependent(struct base_type *bt)
+{
+	int i = 0;
+	char bf[64];
+	const char *name;
+
+	if (bt->name_has_encoding)
+		name = bt->name;
+	else
+		name = base_type__name(bt, bf, sizeof(bf));
+
+	/* Guard against missing DW_AT_name attribute */
+	if (!name)
+		return false;
+try_again:
+	while (base_type_name_to_size_table[i].name != NULL) {
+		if (strcmp(base_type_name_to_size_table[i].name, name) == 0)
+			return base_type_name_to_size_table[i].size == 0;
+		++i;
+	}
+
+	if (strstarts(name, "signed ")) {
+		i = 0;
+		name += sizeof("signed");
+		goto try_again;
+	}
+
+	return false;
+}
+
 static const char *base_type_fp_type_str[] = {
 	[BT_FP_SINGLE]	   = "single",
 	[BT_FP_DOUBLE]	   = "double",
