@@ -1063,7 +1063,13 @@ static inline const char *parameter__name(const struct parameter *parm)
 	return parm->name;
 }
 
-/* struct template_type_param - parameters to a template, stored in 'struct type'
+/**
+ * struct template_type_param - a "typename T" template parameter
+ * @tag: embedded tag (DW_TAG_template_type_parameter); tag.type is the concrete type
+ * @name: parameter name from DW_AT_name (e.g. "T"), may be NULL
+ * @decl_order: position among all template parameters, for correct emission order
+ *
+ * Stored on type->template_type_params or ftype->template_type_params.
  */
 struct template_type_param {
 	struct tag	 tag;
@@ -1073,6 +1079,16 @@ struct template_type_param {
 
 void template_type_param__delete(struct template_type_param *ttparam, struct cu *cu);
 
+/**
+ * struct template_value_param - a non-type template parameter (e.g. "int N")
+ * @tag: embedded tag (DW_TAG_template_value_parameter); tag.type is the value type
+ * @name: parameter name from DW_AT_name (e.g. "N"), may be NULL
+ * @const_value: the constant value from DW_AT_const_value
+ * @default_value: default value from DW_AT_default_value
+ * @decl_order: position among all template parameters, for correct emission order
+ *
+ * Stored on type->template_value_params or ftype->template_value_params.
+ */
 struct template_value_param {
 	struct tag	 tag;
 	const char	 *name;
@@ -1083,9 +1099,47 @@ struct template_value_param {
 
 void template_value_param__delete(struct template_value_param *ttparam, struct cu *cu);
 
-/* struct template_parameter_pack - list of DW_TAG_template_type_param
- */
+static inline struct template_value_param *tag__template_value_param(const struct tag *tag)
+{
+	return (struct template_value_param *)tag;
+}
 
+/**
+ * struct template_template_param - a template template parameter
+ * @tag: embedded tag (DW_TAG_GNU_template_template_param)
+ * @name: parameter name from DW_AT_name (e.g. "ItType"), may be NULL
+ * @template_name: concrete template from DW_AT_GNU_template_name (e.g. "llvm::detail::zip_enumerator")
+ * @decl_order: position among all template parameters, for correct emission order
+ *
+ * Represents C++ template template parameters such as
+ * "template<typename...> class ItType".  Stored on type->template_template_params
+ * or ftype->template_template_params.
+ */
+struct template_template_param {
+	struct tag	 tag;
+	const char	 *name;
+	const char	 *template_name;
+	uint16_t	 decl_order;
+};
+
+void template_template_param__delete(struct template_template_param *ttparam, struct cu *cu);
+
+static inline struct template_template_param *tag__template_template_param(const struct tag *tag)
+{
+	return (struct template_template_param *)tag;
+}
+
+/**
+ * struct template_parameter_pack - a variadic template parameter pack
+ * @tag: embedded tag (DW_TAG_GNU_template_parameter_pack)
+ * @name: pack name from DW_AT_name (e.g. "Ts"), may be NULL
+ * @params: child DW_TAG_template_{type,value}_parameter entries
+ * @decl_order: position among all template parameters, for correct emission order
+ *
+ * Represents C++ variadic template parameters such as "typename... Ts".
+ * Children are stored on @params; the first child's tag determines whether
+ * this is a type pack or value pack.
+ */
 struct template_parameter_pack {
 	struct tag	 tag;
 	const char	 *name;
@@ -1153,6 +1207,7 @@ struct ftype {
 	uint8_t		 signature_changed:1;
 	struct list_head template_type_params;
 	struct list_head template_value_params;
+	struct list_head template_template_params;
 	struct template_parameter_pack *template_parameter_pack;
 	struct formal_parameter_pack *formal_parameter_pack;
 };
@@ -1193,6 +1248,7 @@ void ftype__delete(struct ftype *ftype, struct cu *cu);
 void ftype__add_parameter(struct ftype *ftype, struct parameter *parm);
 void ftype__add_template_type_param(struct ftype *ftype, struct template_type_param *param);
 void ftype__add_template_value_param(struct ftype *ftype, struct template_value_param *param);
+void ftype__add_template_template_param(struct ftype *ftype, struct template_template_param *param);
 
 size_t ftype__fprintf(const struct ftype *ftype, const struct cu *cu,
 		      const char *name, const int inlined,
@@ -1407,6 +1463,7 @@ struct type {
 	uint8_t		 is_signed_enum:1;
 	struct list_head template_type_params;
 	struct list_head template_value_params;
+	struct list_head template_template_params;
 	struct list_head variant_parts;
 	struct template_parameter_pack *template_parameter_pack;
 };
@@ -1551,6 +1608,7 @@ static inline struct class_member *class_member__next(struct class_member *membe
 void type__add_member(struct type *type, struct class_member *member);
 void type__add_template_type_param(struct type *type, struct template_type_param *ttparm);
 void type__add_template_value_param(struct type *type, struct template_value_param *tvparam);
+void type__add_template_template_param(struct type *type, struct template_template_param *ttparm);
 
 /**
  * type__for_each_template_type_param - iterate thru template type parameters
@@ -1567,6 +1625,14 @@ void type__add_template_value_param(struct type *type, struct template_value_par
  */
 #define type__for_each_template_value_param(type, pos) \
 	list_for_each_entry(pos, &(type)->template_value_params, tag.node)
+
+/**
+ * type__for_each_template_template_param - iterate thru template template parameters
+ * @type: struct type instance to iterate
+ * @pos: struct template_template_param iterator
+ */
+#define type__for_each_template_template_param(type, pos) \
+	list_for_each_entry(pos, &(type)->template_template_params, tag.node)
 
 void type__add_variant_part(struct type *type, struct variant_part *vpart);
 void variant_part__delete(struct variant_part *vpart, struct cu *cu);

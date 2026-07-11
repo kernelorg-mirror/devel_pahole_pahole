@@ -231,6 +231,8 @@ void tag__delete(struct tag *tag, struct cu *cu)
 		template_parameter_pack__delete(tag__template_parameter_pack(tag), cu);	break;
 	case DW_TAG_GNU_formal_parameter_pack:
 		formal_parameter_pack__delete(tag__formal_parameter_pack(tag), cu);	break;
+	case DW_TAG_GNU_template_template_param:
+		template_template_param__delete(tag__template_template_param(tag), cu); break;
 	default:
 		cu__tag_free(cu, tag);
 	}
@@ -428,6 +430,7 @@ void __type__init(struct type *type)
 	INIT_LIST_HEAD(&type->type_enum);
 	INIT_LIST_HEAD(&type->template_type_params);
 	INIT_LIST_HEAD(&type->template_value_params);
+	INIT_LIST_HEAD(&type->template_template_params);
 	INIT_LIST_HEAD(&type->variant_parts);
 	type->template_parameter_pack = NULL;
 	type->sizeof_member = NULL;
@@ -1332,6 +1335,16 @@ static void type__delete_variant_parts(struct type *type, struct cu *cu)
 	}
 }
 
+static void template_template_params__delete(struct list_head *params, struct cu *cu)
+{
+	struct template_template_param *pos, *n;
+
+	list_for_each_entry_safe_reverse(pos, n, params, tag.node) {
+		list_del_init(&pos->tag.node);
+		template_template_param__delete(pos, cu);
+	}
+}
+
 void class__delete(struct class *class, struct cu *cu)
 {
 	if (class == NULL)
@@ -1339,6 +1352,12 @@ void class__delete(struct class *class, struct cu *cu)
 
 	type__delete_class_members(&class->type, cu);
 	type__delete_variant_parts(&class->type, cu);
+
+	template_parameter_pack__delete(class->type.template_parameter_pack, cu);
+	class->type.template_parameter_pack = NULL;
+
+	template_template_params__delete(&class->type.template_template_params, cu);
+
 	cu__tag_free(cu, class__tag(class));
 }
 
@@ -1355,6 +1374,8 @@ void type__delete(struct type *type, struct cu *cu)
 
 	template_parameter_pack__delete(type->template_parameter_pack, cu);
 	type->template_parameter_pack = NULL;
+
+	template_template_params__delete(&type->template_template_params, cu);
 
 	cu__tag_free(cu, type__tag(type));
 }
@@ -1407,10 +1428,29 @@ void type__add_template_value_param(struct type *type, struct template_value_par
 	list_add_tail(&tvparam->tag.node, &type->template_value_params);
 }
 
+/**
+ * type__add_template_template_param - append a template template parameter
+ * @type: the struct/class/union type
+ * @ttparam: the DW_TAG_GNU_template_template_param to add
+ */
+void type__add_template_template_param(struct type *type, struct template_template_param *ttparam)
+{
+	list_add_tail(&ttparam->tag.node, &type->template_template_params);
+}
+
+/**
+ * type__has_template_params - check if a type has any template parameters
+ * @type: the type to check
+ *
+ * Returns true if the type has type params, value params, template template
+ * params, or a parameter pack.  Used to decide whether to emit a template<>
+ * specialization prefix.
+ */
 bool type__has_template_params(const struct type *type)
 {
 	return !list_empty(&type->template_type_params) ||
 	       !list_empty(&type->template_value_params) ||
+	       !list_empty(&type->template_template_params) ||
 	       type->template_parameter_pack != NULL;
 }
 
@@ -1468,6 +1508,10 @@ static int type__clone_members(struct type *type, const struct type *from, struc
 	INIT_LIST_HEAD(&type->type_enum);
 	INIT_LIST_HEAD(&type->template_type_params);
 	INIT_LIST_HEAD(&type->template_value_params);
+	INIT_LIST_HEAD(&type->template_template_params);
+	/* Don't share the pack pointer with the original — class__delete()
+	 * would free it through the clone and leave a dangling pointer. */
+	type->template_parameter_pack = NULL;
 
 	type__for_each_member(from, pos) {
 		struct class_member *clone = class_member__clone(pos, cu);
@@ -1569,6 +1613,8 @@ void ftype__delete(struct ftype *type, struct cu *cu)
 	template_parameter_pack__delete(type->template_parameter_pack, cu);
 	type->template_parameter_pack = NULL;
 
+	template_template_params__delete(&type->template_template_params, cu);
+
 	cu__tag_free(cu, &type->tag);
 }
 
@@ -1618,6 +1664,28 @@ void ftype__add_template_type_param(struct ftype *ftype, struct template_type_pa
 void ftype__add_template_value_param(struct ftype *ftype, struct template_value_param *param)
 {
 	list_add_tail(&param->tag.node, &ftype->template_value_params);
+}
+
+/**
+ * ftype__add_template_template_param - append a template template parameter to a function type
+ * @ftype: the function type (DW_TAG_subprogram or DW_TAG_subroutine_type)
+ * @param: the DW_TAG_GNU_template_template_param to add
+ */
+void ftype__add_template_template_param(struct ftype *ftype, struct template_template_param *param)
+{
+	list_add_tail(&param->tag.node, &ftype->template_template_params);
+}
+
+/**
+ * template_template_param__delete - free a template template parameter
+ * @ttparam: the parameter to delete, may be NULL
+ * @cu: compilation unit owning the tag allocation
+ */
+void template_template_param__delete(struct template_template_param *ttparam, struct cu *cu)
+{
+	if (ttparam == NULL)
+		return;
+	cu__tag_free(cu, &ttparam->tag);
 }
 
 /**

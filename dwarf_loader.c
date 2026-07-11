@@ -36,6 +36,10 @@
 #define DW_AT_GNU_vector 0x2107
 #endif
 
+#ifndef DW_AT_GNU_template_name
+#define DW_AT_GNU_template_name 0x2110
+#endif
+
 #ifndef DW_TAG_GNU_call_site
 #define DW_TAG_GNU_call_site 0x4109
 #define DW_TAG_GNU_call_site_parameter 0x410a
@@ -1503,6 +1507,29 @@ static struct template_value_param *template_value_param__new(Dwarf_Die *die, st
 }
 
 /**
+ * template_template_param__new - create a template template parameter from DWARF
+ * @die: the DW_TAG_GNU_template_template_param DIE
+ * @cu: compilation unit
+ * @conf: load configuration
+ *
+ * C++ template template parameters (e.g. "template<typename...> class ItType")
+ * carry a DW_AT_name for the parameter name and DW_AT_GNU_template_name for
+ * the concrete template used in the instantiation.
+ */
+static struct template_template_param *template_template_param__new(Dwarf_Die *die, struct cu *cu, struct conf_load *conf)
+{
+	struct template_template_param *ttparm = tag__alloc(cu, sizeof(*ttparm));
+
+	if (ttparm != NULL) {
+		tag__init(&ttparm->tag, cu, die);
+		ttparm->name = attr_string(die, DW_AT_name, conf);
+		ttparm->template_name = attr_string(die, DW_AT_GNU_template_name, conf);
+	}
+
+	return ttparm;
+}
+
+/**
  * template_parameter_pack__load_params - load children of a DW_TAG_template_parameter_pack
  * @pack: pack to populate
  * @die: the DW_TAG_template_parameter_pack DIE
@@ -1534,6 +1561,12 @@ static int template_parameter_pack__load_params(struct template_parameter_pack *
 			struct template_value_param *tvparm = template_value_param__new(die, cu, conf);
 			if (tvparm != NULL)
 				param = &tvparm->tag;
+			break;
+		}
+		case DW_TAG_GNU_template_template_param: {
+			struct template_template_param *ttparm = template_template_param__new(die, cu, conf);
+			if (ttparm != NULL)
+				param = &ttparm->tag;
 			break;
 		}
 		default:
@@ -2151,6 +2184,7 @@ static void ftype__init(struct ftype *ftype, Dwarf_Die *die, struct cu *cu)
 	INIT_LIST_HEAD(&ftype->parms);
 	INIT_LIST_HEAD(&ftype->template_type_params);
 	INIT_LIST_HEAD(&ftype->template_value_params);
+	INIT_LIST_HEAD(&ftype->template_template_params);
 	ftype->nr_parms	    = 0;
 	ftype->unspec_parms = 0;
 	ftype->template_parameter_pack = NULL;
@@ -2800,11 +2834,22 @@ static int die__process_class(Dwarf_Die *die, struct type *class,
 			class->template_parameter_pack->decl_order = template_param_idx++;
 			continue;
 		case DW_TAG_GNU_formal_parameter_pack:
-		case DW_TAG_GNU_template_template_param:
 #endif
 		case DW_TAG_subrange_type: // XXX: ADA stuff, its a type tho, will have other entries referencing it...
 			tag__print_not_supported(die);
 			continue;
+#ifdef STB_GNU_UNIQUE
+		case DW_TAG_GNU_template_template_param: {
+			struct template_template_param *ttparm = template_template_param__new(die, cu, conf);
+
+			if (ttparm == NULL)
+				return -ENOMEM;
+
+			ttparm->decl_order = template_param_idx++;
+			type__add_template_template_param(class, ttparm);
+			continue;
+		}
+#endif
 		case DW_TAG_variant_part: {
 			struct variant_part *vpart = variant_part__new(die, cu, conf);
 
@@ -3100,8 +3145,15 @@ static int die__process_function(Dwarf_Die *die, struct ftype *ftype,
 			 * Ignore it, just scope expressions, that we have no use for (so far).
 			 */
 			continue;
+		/*
+		 * ftype is NULL when called from die__create_new_lexblock(),
+		 * where template parameters are nonsensical — skip them.
+		 */
 #ifdef STB_GNU_UNIQUE
 		case DW_TAG_GNU_template_parameter_pack:
+			if (ftype == NULL)
+				continue;
+
 			ftype->template_parameter_pack = template_parameter_pack__new(die, cu, conf);
 
 			if (ftype->template_parameter_pack == NULL)
@@ -3109,17 +3161,32 @@ static int die__process_function(Dwarf_Die *die, struct ftype *ftype,
 
 			continue;
 		case DW_TAG_GNU_formal_parameter_pack:
+			if (ftype == NULL)
+				continue;
+
 			ftype->formal_parameter_pack = formal_parameter_pack__new(die, cu, conf);
 
 			if (ftype->formal_parameter_pack == NULL)
 				return -ENOMEM;
 
 			continue;
-		case DW_TAG_GNU_template_template_param:
-#endif
-			tag__print_not_supported(die);
+		case DW_TAG_GNU_template_template_param: {
+			if (ftype == NULL)
+				continue;
+
+			struct template_template_param *ttparm = template_template_param__new(die, cu, conf);
+
+			if (ttparm == NULL)
+				return -ENOMEM;
+
+			ftype__add_template_template_param(ftype, ttparm);
 			continue;
+		}
+#endif
 		case DW_TAG_template_type_parameter: {
+			if (ftype == NULL)
+				continue;
+
 			struct template_type_param *ttparm = template_type_param__new(die, cu, conf);
 
 			if (ttparm == NULL)
@@ -3129,8 +3196,11 @@ static int die__process_function(Dwarf_Die *die, struct ftype *ftype,
 			continue;
 		}
 		case DW_TAG_template_value_parameter: {
+			if (ftype == NULL)
+				continue;
+
 			/* FIXME: probably we'll have to attach this as a list of
-			 * template parameters to use at class__fprintf time... 
+			 * template parameters to use at class__fprintf time...
 			 * See die__process_class */
 			struct template_value_param *tvparm = template_value_param__new(die, cu, conf);
 
