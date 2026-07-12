@@ -7,6 +7,13 @@
 # to validate that they were indeed skipped for BTF encoding, and that they
 # also should have been.
 #
+# Performance: This test has two modes:
+#   - Quick mode (BTF_FUNCTIONS_QUICK=1): ~30ms - validates test_bin corner cases only
+#   - Full mode (default): ~2+ minutes - validates full vmlinux + test_bin
+#
+# Quick mode is sufficient for development/CI as test_bin covers all the encoding
+# logic with controlled test cases. Full mode catches real-world kernel edge cases.
+#
 
 source "$(dirname "$0")/test_lib.sh"
 
@@ -25,10 +32,10 @@ title_log "Validation of BTF encoding of functions."
 
 # BTF_FUNCTIONS_QUICK: skip slow vmlinux validation, test only corner cases with test_bin
 if [ "${BTF_FUNCTIONS_QUICK:-0}" = "1" ]; then
-	info_log "Quick mode: skipping vmlinux validation (set BTF_FUNCTIONS_QUICK=0 for full test)"
+	info_log "Quick mode: test_bin validation only (~30ms). Use BTF_FUNCTIONS_QUICK=0 for full vmlinux validation."
 	skip_vmlinux=1
 else
-	info_log "This may take some time."
+	info_log "Full mode: vmlinux + test_bin validation. This may take 2+ minutes. Use BTF_FUNCTIONS_QUICK=1 for quick mode (~30ms)."
 	skip_vmlinux=0
 fi
 
