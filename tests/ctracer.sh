@@ -5,6 +5,9 @@
 # Test ctracer: load vmlinux DWARF, find a struct's "methods" (functions
 # taking a pointer to it), and generate SystemTap probes + support files.
 # Optionally validate the .stp with systemtap dry-run (stap -p4).
+#
+# Coverage: exercises cus__find_struct_by_name() → __cus__find_struct_by_name()
+# in dwarves.c when looking up the target struct by name.
 
 . "$(dirname "$0")/test_lib.sh"
 
