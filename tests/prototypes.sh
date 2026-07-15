@@ -19,11 +19,7 @@ trap cleanup EXIT
 
 title_log "Prototype expression parsing and prettify."
 
-perf=$(which perf 2>/dev/null)
-if [ -z "$perf" ]; then
-	info_log "skip: perf not available"
-	test_skip
-fi
+perf=$(get_perf_with_debug)
 
 # Check that perf has the needed type info
 perf_lacks_type() {
