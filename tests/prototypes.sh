@@ -35,8 +35,9 @@ perf_lacks_type perf_event_header
 perf_lacks_type perf_file_header
 
 # Record a tiny perf.data
+# Use task-clock software event for container compatibility (no hardware PMU access)
 perf_data="$outdir/perf.data"
-$perf record --quiet -o "$perf_data" sleep 0.00001 2>/dev/null
+$perf record --quiet -e task-clock -o "$perf_data" sleep 0.00001 2>/dev/null
 if [ ! -s "$perf_data" ]; then
 	info_log "skip: perf record produced no data"
 	test_skip

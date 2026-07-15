@@ -33,7 +33,8 @@ perf_lacks_type_info struct perf_event_header
 perf_lacks_type_info enum perf_event_type
 perf_lacks_type_info enum perf_user_event_type
 
-$perf record --quiet -o $perf_data sleep 0.00001
+# Use task-clock software event for container compatibility (no hardware PMU access)
+$perf record --quiet -e task-clock -o $perf_data sleep 0.00001
 
 number_of_filtered_perf_record_metadata() {
 	local metadata_record=$1

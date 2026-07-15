@@ -32,6 +32,10 @@ This ensures tests work on:
 - Alpine/musl systems with no debug packages
 - Any distro by building from source as fallback
 
+Tests use software events (task-clock) instead of hardware performance
+counters for container compatibility (containers typically lack access to
+hardware PMU).
+
 Set `PERF_CACHE_DIR` to override the cache location.
 
 ## Adding new dependencies
