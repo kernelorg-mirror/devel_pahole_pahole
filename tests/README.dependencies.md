@@ -36,6 +36,12 @@ Tests use software events (task-clock) instead of hardware performance
 counters for container compatibility (containers typically lack access to
 hardware PMU).
 
+**Container restrictions**: Some containers block the perf_event_open syscall
+entirely via seccomp or missing capabilities (CAP_PERFMON, CAP_SYS_ADMIN).
+Tests detect this ("Operation not permitted") and skip gracefully rather
+than fail. To enable in such containers, run with --privileged, add
+SYS_ADMIN capability, or adjust seccomp policy.
+
 Set `PERF_CACHE_DIR` to override the cache location.
 
 ## Adding new dependencies

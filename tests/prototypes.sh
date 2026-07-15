@@ -37,9 +37,14 @@ perf_lacks_type perf_file_header
 # Record a tiny perf.data
 # Use task-clock software event for container compatibility (no hardware PMU access)
 perf_data="$outdir/perf.data"
-$perf record --quiet -e task-clock -o "$perf_data" sleep 0.00001 2>/dev/null
+$perf record --quiet -e task-clock -o "$perf_data" sleep 0.00001 2>"$outdir/perf.err"
 if [ ! -s "$perf_data" ]; then
-	info_log "skip: perf record produced no data"
+	# perf_event_open syscall blocked (restrictive containers/seccomp)
+	if grep -q "Operation not permitted" "$outdir/perf.err" 2>/dev/null; then
+		info_log "skip: perf_event_open blocked (container seccomp/capabilities)"
+	else
+		info_log "skip: perf record produced no data"
+	fi
 	test_skip
 fi
 

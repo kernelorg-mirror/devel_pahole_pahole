@@ -34,7 +34,16 @@ perf_lacks_type_info enum perf_event_type
 perf_lacks_type_info enum perf_user_event_type
 
 # Use task-clock software event for container compatibility (no hardware PMU access)
-$perf record --quiet -e task-clock -o $perf_data sleep 0.00001
+$perf record --quiet -e task-clock -o $perf_data sleep 0.00001 2>"$outdir/perf.err"
+if [ ! -s "$perf_data" ]; then
+	# perf_event_open syscall blocked (restrictive containers/seccomp)
+	if grep -q "Operation not permitted" "$outdir/perf.err" 2>/dev/null; then
+		info_log "skip: perf_event_open blocked (container seccomp/capabilities)"
+	else
+		info_log "skip: perf record failed"
+	fi
+	test_skip
+fi
 
 number_of_filtered_perf_record_metadata() {
 	local metadata_record=$1
