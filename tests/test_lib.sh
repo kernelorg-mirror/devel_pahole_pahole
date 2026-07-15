@@ -14,11 +14,34 @@
 # Auto-detect and use just-built binaries from build/ directory.
 # When running tests after 'make -C build', automatically use those binaries
 # instead of distro-installed or ~/bin versions, with no PATH setup required.
+# Skip auto-detection if pahole is already in PATH from a build directory
+# (e.g., build-coverage/ for coverage runs).
 tests_root=$(cd "$(dirname "$0")" && pwd)
 build_dir="$tests_root/../build"
-if [ -d "$build_dir" ] && [ -x "$build_dir/pahole" ]; then
-	export PATH="$build_dir:$PATH"
-	export LD_LIBRARY_PATH="$build_dir:${LD_LIBRARY_PATH}"
+
+# Check if pahole is already available and is from a build directory
+pahole_path=$(command -v pahole 2>/dev/null)
+if [ -n "$pahole_path" ]; then
+	pahole_dir=$(dirname "$pahole_path")
+	# If pahole is from build/ or build-*/, don't override (coverage uses build-coverage/)
+	case "$pahole_dir" in
+		*/build|*/build-*)
+			# Already using a build directory, don't override
+			;;
+		*)
+			# pahole from system/other location, use our build/
+			if [ -d "$build_dir" ] && [ -x "$build_dir/pahole" ]; then
+				export PATH="$build_dir:$PATH"
+				export LD_LIBRARY_PATH="$build_dir:${LD_LIBRARY_PATH}"
+			fi
+			;;
+	esac
+else
+	# No pahole in PATH, use build/ if available
+	if [ -d "$build_dir" ] && [ -x "$build_dir/pahole" ]; then
+		export PATH="$build_dir:$PATH"
+		export LD_LIBRARY_PATH="$build_dir:${LD_LIBRARY_PATH}"
+	fi
 fi
 
 check_color_support()
