@@ -63,8 +63,8 @@ color_print()
 
 get_vmlinux()
 {
-
-	vmlinux=${vmlinux:-$1}
+	# Priority: VMLINUX env var > passed argument > auto-detect
+	vmlinux=${VMLINUX:-${vmlinux:-$1}}
 
 	if [ -z "$vmlinux" ] ; then
 		vmlinux=$(pahole --running_kernel_vmlinux)

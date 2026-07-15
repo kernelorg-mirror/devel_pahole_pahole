@@ -56,7 +56,23 @@ When adding tests that need external tools:
 
 ## Environment variables
 
+- `VMLINUX`: Path to vmlinux file for tests requiring it (default: auto-detect via pahole)
 - `PERF_CACHE_DIR`: Override perf build cache location (default: /tmp/pahole-test-perf-cache)
 - `CC`: Override C compiler (default: gcc)
 - `CLANG`: Override clang compiler (default: clang)
 - `BTF_FUNCTIONS_QUICK`: Use smaller test set for btf_functions.sh in CI
+
+## Command line options
+
+The `tests` runner accepts the following options:
+
+```bash
+tests --vmlinux /path/to/vmlinux    # Specify vmlinux file for tests
+tests --help                         # Show usage information
+```
+
+Equivalently, use the VMLINUX environment variable:
+
+```bash
+VMLINUX=/boot/vmlinux-6.11.0 tests
+```
