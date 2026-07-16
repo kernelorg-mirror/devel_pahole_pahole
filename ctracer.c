@@ -903,6 +903,11 @@ static const struct argp_option ctracer__options[] = {
 		.doc  = "recursively load files",
 	},
 	{
+		.name = "devel_version",
+		.key  = 300,
+		.doc  = "Print development version with git SHA (e.g., v1.31-189-g437fced33da3393e)",
+	},
+	{
 		.name = NULL,
 	}
 };
@@ -919,6 +924,9 @@ static error_t ctracer__options_parser(int key, char *arg,
 	case 'D': dirname = arg;		break;
 	case 'g': glob = arg;			break;
 	case 'r': recursive = 1;		break;
+	case 300:
+		dwarves_print_devel_version(stdout, state);
+		exit(0);
 	default:  return ARGP_ERR_UNKNOWN;
 	}
 	return 0;

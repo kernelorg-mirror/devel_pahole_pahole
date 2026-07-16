@@ -53,6 +53,16 @@ done
 tests_dir=$(dirname "$0")
 cd "$tests_dir"
 
+# Show version of tools being tested (for debugging test output)
+echo "Testing pahole version:"
+if command -v pahole >/dev/null 2>&1; then
+	pahole --devel_version 2>&1 | sed 's/^/  /'
+else
+	echo "  ERROR: pahole not found in PATH"
+	exit 1
+fi
+echo ""
+
 tmpdir=$(mktemp -d /tmp/pahole-tests.XXXXXX) || exit 1
 
 kill_children() {

@@ -1290,6 +1290,7 @@ ARGP_PROGRAM_VERSION_HOOK_DEF = dwarves_print_version;
 #define ARGP_btf_attributes	   350
 #define ARGP_features		   351
 #define ARGP_emit_variables	   352
+#define ARGP_devel_version	   353
 
 /* --btf_features=feature1[,feature2,..] allows us to specify
  * a list of requested BTF features or "default" to enable all default
@@ -1884,6 +1885,11 @@ static const struct argp_option pahole__options[] = {
 		.doc  = "Print a numeric version, i.e. 119 instead of v1.19"
 	},
 	{
+		.name = "devel_version",
+		.key  = ARGP_devel_version,
+		.doc  = "Print development version with git SHA (e.g., v1.31-189-g437fced33da3393e)"
+	},
+	{
 		.name = "sort",
 		.key  = ARGP_sort_output,
 		.doc  = "Sort types by name",
@@ -2140,6 +2146,9 @@ static error_t pahole__options_parser(int key, char *arg,
 		conf_load.kabi_prefix_len = strlen(arg); break;
 	case ARGP_numeric_version:
 		print_numeric_version = true;		break;
+	case ARGP_devel_version:
+		dwarves_print_devel_version(stdout, state);
+		exit(0);
 	case ARGP_btf_gen_floats:
 		conf_load.btf_gen_floats = true;	break;
 	case ARGP_btf_gen_all:
