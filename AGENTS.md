@@ -64,6 +64,36 @@ When creating commits, use the actual model name:
 
 Update this list as new models become available.
 
+## Amending Changes to Patches
+
+When making changes to code in response to user requests, **immediately find the relevant patch in the current series and amend the change**. Do not create new commits for changes that logically belong to existing patches.
+
+### Process
+
+1. **Identify the patch**: Use `git log --oneline` to find which patch in the current series introduced or modified the code being changed
+2. **Verify it's the right patch**: Use `git show <commit>` to confirm the patch touches the same file/function
+3. **Amend the change**: Stage the changes and use `git commit --fixup=<commit>` or interactive rebase to amend
+
+### Examples
+
+User: "optimize that to not call command -v perf twice"
+Agent:
+1. Check git log to find the patch that added the perf detection code
+2. Find "tests: Add automatic perf building..." at c855df182f39e03c
+3. Amend the optimization to that patch
+
+User: "add error handling to that function"
+Agent:
+1. Find which patch introduced the function
+2. Amend the error handling to that same patch
+
+### Why This Matters
+
+- Keeps patch history clean and logical
+- Each patch remains a complete, self-contained change
+- Makes review easier (one patch = one concept)
+- Follows kernel development practices
+
 ## Testing Requirements
 
 When running `tests/tests`, the build directory containing the binaries to be tested **must be at the front of PATH**. This ensures tests use the just-built binaries rather than installed versions or binaries from other build directories (like `build-coverage/`).
