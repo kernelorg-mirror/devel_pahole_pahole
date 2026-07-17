@@ -63,3 +63,36 @@ When creating commits, use the actual model name:
 - Cursor: (check current model)
 
 Update this list as new models become available.
+
+## Testing Requirements
+
+When running `tests/tests`, the build directory containing the binaries to be tested **must be at the front of PATH**. This ensures tests use the just-built binaries rather than installed versions or binaries from other build directories (like `build-coverage/`).
+
+### Correct Usage
+
+```bash
+# Build and test in one command (recommended)
+./build-and-test-cmd.sh
+
+# Manual build and test
+./buildcmd.sh
+export PATH="$(pwd)/build:$PATH"
+tests/tests
+
+# Testing coverage builds
+cmake -S . -B build-coverage -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
+make -C build-coverage
+export PATH="$(pwd)/build-coverage:$PATH"
+tests/tests
+```
+
+### Why This Matters
+
+- Different build configurations (release, debug, coverage) produce different binaries
+- The test runner relies on `command -v pahole` to find binaries in PATH
+- Prepending the target build directory ensures the correct binaries are tested
+- This approach works consistently across different environments (containers, CI, local development)
+
+### Common Mistake
+
+Running `tests/tests` without setting PATH will test whatever `pahole` is in your system PATH (likely an installed version), not the version you just built.

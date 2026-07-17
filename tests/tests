@@ -65,11 +65,15 @@ tests_dir=$(dirname "$0")
 cd "$tests_dir"
 
 # Show version of tools being tested (for debugging test output)
+# NOTE: tests/tests expects the build directory to be at the front of PATH
+# See AGENTS.md for requirements when calling tests/tests
 echo "Testing pahole version:"
 if command -v pahole >/dev/null 2>&1; then
 	pahole --devel_version 2>&1 | sed 's/^/  /'
 else
 	echo "  ERROR: pahole not found in PATH"
+	echo "  Ensure the build directory is at the front of PATH before running tests"
+	echo "  Example: export PATH=\$(pwd)/build:\$PATH"
 	exit 1
 fi
 echo ""
