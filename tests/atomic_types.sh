@@ -38,10 +38,12 @@ struct atomic_test {
 struct atomic_test g_at;
 EOF
 
-# Need C11 for _Atomic; skip if the compiler rejects it.
-$CC -std=c11 -g -c -o "$obj" "$src" 2>/dev/null
+# Need C11 for _Atomic and DWARF 5 for DW_TAG_atomic_type.
+# GCC defaults to DWARF 4 until version 12, and DWARF 4 has no atomic type tag,
+# so the _Atomic qualifier is lost. Force DWARF 5 for consistent behavior.
+$CC -std=c11 -gdwarf-5 -c -o "$obj" "$src" 2>/dev/null
 if [ $? -ne 0 ]; then
-	info_log "skip: $CC does not support -std=c11 or <stdatomic.h>"
+	info_log "skip: $CC does not support -std=c11, -gdwarf-5, or <stdatomic.h>"
 	test_skip
 fi
 
