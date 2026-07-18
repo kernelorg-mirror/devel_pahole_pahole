@@ -120,6 +120,23 @@ get_vmlinux()
 # Returns: path to perf binary, or exits with skip if unavailable
 get_perf_with_debug()
 {
+	# Check if user provided a pre-built perf binary via PERF_BIN
+	# Useful when perf is already built (e.g., O=/tmp/build/perf)
+	if [ -n "$PERF_BIN" ]; then
+		if [ ! -f "$PERF_BIN" ]; then
+			info_log "skip: PERF_BIN points to non-existent file: $PERF_BIN" >&2
+			test_skip
+		fi
+		# Verify it has debug info
+		if pahole --features=force_cu_merging -F dwarf -C perf_event_header "$PERF_BIN" 2>/dev/null | grep -q "^struct perf_event_header {"; then
+			echo "$PERF_BIN"
+			return 0
+		else
+			info_log "skip: PERF_BIN=$PERF_BIN lacks DWARF debug info" >&2
+			test_skip
+		fi
+	fi
+
 	# Check if system perf has usable DWARF debug info
 	# Alpine Linux packages perf without debuginfo, so we can't rely on "not stripped"
 	# check alone - verify actual DWARF type info is present using pahole.
@@ -232,7 +249,14 @@ get_perf_with_debug()
 			if ! make -C "$perf_src_dir/tools/perf" O="$perf_cache/perf-build" \
 				DEBUG=1 WERROR=0 EXTRA_CFLAGS="-g -ggdb3" \
 				> "$perf_cache/build.log" 2>&1; then
-				info_log "skip: failed to build perf from $perf_src_dir" >&2
+				# Preserve build log for debugging before cleanup
+				if [ -f "$perf_cache/build.log" ]; then
+					mv "$perf_cache/build.log" "/tmp/pahole-perf-build-failed.log" 2>/dev/null || true
+					info_log "skip: failed to build perf from $perf_src_dir" >&2
+					info_log "See /tmp/pahole-perf-build-failed.log for details" >&2
+				else
+					info_log "skip: failed to build perf from $perf_src_dir" >&2
+				fi
 				rm -rf "$perf_cache"
 				rmdir "$lockdir"
 				test_skip
@@ -296,7 +320,14 @@ get_perf_with_debug()
 			if ! make -C "$perf_cache/perf-src/tools/perf" \
 				DEBUG=1 WERROR=0 EXTRA_CFLAGS="-g -ggdb3" \
 				> "$perf_cache/build.log" 2>&1; then
-				info_log "skip: failed to build perf from source" >&2
+				# Preserve build log for debugging before cleanup
+				if [ -f "$perf_cache/build.log" ]; then
+					mv "$perf_cache/build.log" "/tmp/pahole-perf-build-failed.log" 2>/dev/null || true
+					info_log "skip: failed to build perf from source" >&2
+					info_log "See /tmp/pahole-perf-build-failed.log for details" >&2
+				else
+					info_log "skip: failed to build perf from source" >&2
+				fi
 				rm -rf "$perf_cache"
 				rmdir "$lockdir"
 				test_skip
