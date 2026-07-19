@@ -152,6 +152,12 @@ if command -v bpftool > /dev/null 2>&1; then
 		info_log "skip: bpftool cannot parse BTF (too old or missing features)"
 		test_skip
 	fi
+	# Check if bpftool supports VAR entries in output
+	# Old bpftool versions (e.g., v4.18.0 on RHEL8) may not dump VAR entries
+	if ! echo "$dump" | grep -q '\[.*\] VAR'; then
+		info_log "skip: bpftool doesn't support VAR in dump output"
+		test_skip
+	fi
 	if ! echo "$dump" | grep -q "VAR 'normal_var'"; then
 		error_log "FAIL: valid 'normal_var' missing from BTF after force"
 		test_fail
