@@ -148,24 +148,24 @@ info_log "Force+verbose path (Warning printed): ok"
 # (normal_var, g) must still appear in the BTF.
 if command -v bpftool > /dev/null 2>&1; then
 	dump=$(bpftool btf dump file "$elf_verbose" 2>/dev/null)
-	if [ -n "$dump" ]; then
-		if ! echo "$dump" | grep -q "VAR 'normal_var'"; then
-			error_log "FAIL: valid 'normal_var' missing from BTF after force"
-			test_fail
-		fi
-		if ! echo "$dump" | grep -q "VAR 'g'"; then
-			error_log "FAIL: valid 'g' missing from BTF after force"
-			test_fail
-		fi
-		# The invalid variable must NOT be in BTF (it was skipped)
-		if echo "$dump" | grep -q "VAR '0badvar'"; then
-			error_log "FAIL: invalid '0badvar' should not appear in BTF"
-			test_fail
-		fi
-		info_log "Valid vars encoded, invalid skipped: ok"
-	else
-		info_log "skip: bpftool btf dump produced no output"
+	if [ -z "$dump" ]; then
+		info_log "skip: bpftool cannot parse BTF (too old or missing features)"
+		test_skip
 	fi
+	if ! echo "$dump" | grep -q "VAR 'normal_var'"; then
+		error_log "FAIL: valid 'normal_var' missing from BTF after force"
+		test_fail
+	fi
+	if ! echo "$dump" | grep -q "VAR 'g'"; then
+		error_log "FAIL: valid 'g' missing from BTF after force"
+		test_fail
+	fi
+	# The invalid variable must NOT be in BTF (it was skipped)
+	if echo "$dump" | grep -q "VAR '0badvar'"; then
+		error_log "FAIL: invalid '0badvar' should not appear in BTF"
+		test_fail
+	fi
+	info_log "Valid vars encoded, invalid skipped: ok"
 else
 	info_log "skip: bpftool not available, skipping BTF content check"
 fi
