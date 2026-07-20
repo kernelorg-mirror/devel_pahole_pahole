@@ -158,13 +158,22 @@ if command -v bpftool > /dev/null 2>&1; then
 		info_log "skip: bpftool doesn't support VAR in dump output"
 		test_skip
 	fi
+	# Old bpftool (v4.18.0 on RHEL8) may not display .bss DATASEC sections,
+	# so only check .data variables. Variable 'g' is in .bss so skip that check
+	# on old bpftool versions.
 	if ! echo "$dump" | grep -q "VAR 'normal_var'"; then
 		error_log "FAIL: valid 'normal_var' missing from BTF after force"
 		test_fail
 	fi
-	if ! echo "$dump" | grep -q "VAR 'g'"; then
-		error_log "FAIL: valid 'g' missing from BTF after force"
-		test_fail
+	# Check if bpftool displays .bss DATASEC (newer versions only)
+	if echo "$dump" | grep -q "DATASEC '\\.bss'"; then
+		# New bpftool: check that 'g' (.bss variable) is present
+		if ! echo "$dump" | grep -q "VAR 'g'"; then
+			error_log "FAIL: valid 'g' missing from BTF after force"
+			test_fail
+		fi
+	else
+		info_log "skip: bpftool doesn't display .bss DATASEC, can't verify 'g'"
 	fi
 	# The invalid variable must NOT be in BTF (it was skipped)
 	if echo "$dump" | grep -q "VAR '0badvar'"; then
