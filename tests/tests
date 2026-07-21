@@ -443,10 +443,16 @@ print_test_result() {
 								echo "     === Symbol table (first 30 entries) ==="
 								readelf -s "$binfile" 2>&1 | sed 's/^/     /' | head -30
 
-								# Show DWARF variable info if present
+								# Show DWARF type info if present
 								if readelf -S "$binfile" 2>/dev/null | grep -q '\.debug_info'; then
 									echo "     === DWARF variables (abbreviated) ==="
 									readelf -wi "$binfile" 2>&1 | grep -A6 "DW_TAG_variable" | sed 's/^/     /' | head -60
+
+									echo "     === DWARF typedefs (abbreviated) ==="
+									readelf -wi "$binfile" 2>&1 | grep -A8 "DW_TAG_typedef" | sed 's/^/     /' | head -80
+
+									echo "     === DWARF atomic types (abbreviated) ==="
+									readelf -wi "$binfile" 2>&1 | grep -A4 "DW_TAG_atomic_type" | sed 's/^/     /' | head -40
 								fi
 							fi
 
