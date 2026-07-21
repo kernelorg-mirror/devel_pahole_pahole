@@ -44,6 +44,19 @@ if ! $CC -g -std=c11 -c -o "$obj" "$src" 2>"$outdir/cc.log"; then
 	test_skip
 fi
 
+# Check if the compiler properly encodes DW_TAG_atomic_type nodes in DWARF.
+# Some older compilers (e.g., clang 21.1.8 on AlmaLinux 8) compile _Atomic
+# but don't preserve the atomic qualifier in DWARF - they emit:
+#   DW_TAG_typedef "atomic_int" → DW_TAG_base_type "int"
+# instead of the correct:
+#   DW_TAG_typedef "atomic_int" → DW_TAG_atomic_type → DW_TAG_base_type "int"
+# When the atomic_type node is missing, pahole has no way to know the typedef
+# was atomic, so it correctly emits "typedef int atomic_int;" without _Atomic.
+if ! readelf -wi "$obj" 2>/dev/null | grep -q 'DW_TAG_atomic_type'; then
+	info_log "skip: compiler does not encode DW_TAG_atomic_type in DWARF"
+	test_skip
+fi
+
 # --compile should emit atomic typedefs for recompilation
 output=$(pahole --compile "$obj" 2>/dev/null)
 if [ -z "$output" ]; then
