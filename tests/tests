@@ -456,6 +456,14 @@ print_test_result() {
 								bpftool btf dump file "$binfile" 2>&1 | sed 's/^/     /' | head -50
 							fi
 
+							# Run pahole --compile to show what pahole would emit from this binary
+							# This is critical for debugging emit_* test failures where the issue is
+							# what pahole produces, not just what's in the DWARF
+							if command -v pahole >/dev/null 2>&1; then
+								echo "     === pahole --compile output (first 100 lines) ==="
+								pahole --compile "$binfile" 2>&1 | sed 's/^/     /' | head -100
+							fi
+
 							echo "     --- End of $binfile ---"
 						done
 						echo "     --- End of binary artifacts (analyzed $count files) ---"
