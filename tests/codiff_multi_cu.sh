@@ -10,14 +10,14 @@
 # separate .o files with matching struct/function names across units.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "codiff multi-CU: __cus__find_cu_by_name coverage."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -70,26 +70,22 @@ int gadget_init(struct gadget *g) { return (int)g->serial + g->revision; }
 EOF
 
 # Compile each source into its own .o file, preserving CU identity
-$CC -g -c -o "$outdir/widget_v1.o" "$outdir/widget_v1.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/widget_v1.o" "$outdir/widget_v1.c" 2>/dev/null; then
 	error_log "FAIL: compilation of widget_v1 failed"
 	test_fail
 fi
 
-$CC -g -c -o "$outdir/gadget_v1.o" "$outdir/gadget_v1.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/gadget_v1.o" "$outdir/gadget_v1.c" 2>/dev/null; then
 	error_log "FAIL: compilation of gadget_v1 failed"
 	test_fail
 fi
 
-$CC -g -c -o "$outdir/widget_v2.o" "$outdir/widget_v2.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/widget_v2.o" "$outdir/widget_v2.c" 2>/dev/null; then
 	error_log "FAIL: compilation of widget_v2 failed"
 	test_fail
 fi
 
-$CC -g -c -o "$outdir/gadget_v2.o" "$outdir/gadget_v2.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/gadget_v2.o" "$outdir/gadget_v2.c" 2>/dev/null; then
 	error_log "FAIL: compilation of gadget_v2 failed"
 	test_fail
 fi
@@ -99,14 +95,12 @@ fi
 # with nr_entries > 1. cus__find_pair() must then use __cus__find_cu_by_name()
 # to match old and new CUs by their source file name.
 
-ar rcs "$outdir/old.a" "$outdir/widget_v1.o" "$outdir/gadget_v1.o" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! ar rcs "$outdir/old.a" "$outdir/widget_v1.o" "$outdir/gadget_v1.o" 2>/dev/null; then
 	error_log "FAIL: ar rcs old.a failed"
 	test_fail
 fi
 
-ar rcs "$outdir/new.a" "$outdir/widget_v2.o" "$outdir/gadget_v2.o" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! ar rcs "$outdir/new.a" "$outdir/widget_v2.o" "$outdir/gadget_v2.o" 2>/dev/null; then
 	error_log "FAIL: ar rcs new.a failed"
 	test_fail
 fi

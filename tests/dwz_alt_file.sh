@@ -10,14 +10,14 @@
 # can resolve the shared types.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "DWZ alternate debug file type resolution."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi

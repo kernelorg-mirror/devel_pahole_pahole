@@ -11,14 +11,14 @@
 # BTF_KIND_DATASEC entry that back-references the VAR type.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "BTF VAR and DATASEC encoding for global variables."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -45,14 +45,12 @@ EOF
 
 # -O0 prevents the compiler from inlining the static constant
 # and removing the variable from the ELF section.
-$CC -g -O0 -o "$bin" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -o "$bin" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
 
-pahole --btf_features=default,global_var --btf_encode_detached="$btf" "$bin" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole --btf_features=default,global_var --btf_encode_detached="$btf" "$bin" 2>/dev/null; then
 	error_log "FAIL: pahole BTF encoding failed"
 	test_fail
 fi

@@ -5,14 +5,14 @@
 # Test --word_size LP64/LP32 resizing (pahole.c coverage).
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Word size LP resizing."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -31,8 +31,7 @@ struct with_ptrs {
 struct with_ptrs g1;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi

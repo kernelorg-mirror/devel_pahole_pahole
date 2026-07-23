@@ -11,14 +11,14 @@
 # visible and that filters work across file boundaries.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Multi-file loading (cus__load_files)."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -45,13 +45,11 @@ struct beta {
 struct beta g2;
 EOF
 
-$CC -g -c -o "$obj1" "$src1" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj1" "$src1" 2>/dev/null; then
 	error_log "FAIL: compilation of file1 failed"
 	test_fail
 fi
-$CC -g -c -o "$obj2" "$src2" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj2" "$src2" 2>/dev/null; then
 	error_log "FAIL: compilation of file2 failed"
 	test_fail
 fi

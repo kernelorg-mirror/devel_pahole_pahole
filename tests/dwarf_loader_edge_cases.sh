@@ -12,14 +12,14 @@
 #     (lines 3479-3500), so this exercises the skip/continue path.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "dwarf_loader.c edge cases: bitfield recode, inlining, call sites."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -58,8 +58,7 @@ struct cross_bits g_cb;
 struct mixed_bits g_mb;
 EOF
 
-$CC -g -O0 -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: bitfield compilation failed"
 	test_fail
 fi
@@ -121,8 +120,7 @@ struct opt_data g_opt;
 EOF
 
 # -O2 is needed to trigger call site DWARF tags and inlining
-$CC -g -O2 -c -o "$opt_obj" "$opt_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O2 -c -o "$opt_obj" "$opt_src" 2>/dev/null; then
 	error_log "FAIL: optimized compilation failed"
 	test_fail
 fi

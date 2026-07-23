@@ -16,12 +16,13 @@
 . "$(dirname "$0")/test_lib.sh"
 
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "BTF bitfield encoding and loading round-trip."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -62,15 +63,13 @@ struct mixed     g2;
 struct byte_bits g3;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
 
 # Encode BTF in-place; pahole -F btf will then load it back
-pahole -J "$obj" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole -J "$obj" 2>/dev/null; then
 	error_log "FAIL: pahole -J (in-place BTF encoding) failed"
 	test_fail
 fi

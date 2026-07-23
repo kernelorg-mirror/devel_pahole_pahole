@@ -10,14 +10,14 @@
 #   - cu__find_first_typedef_of_type (pahole --compile)
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "dwarves.c core API coverage."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -47,8 +47,7 @@ simple_t g_st;
 color_t g_ct;
 EOF
 
-$CC -g -O0 -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi

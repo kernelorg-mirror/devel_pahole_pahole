@@ -5,14 +5,14 @@
 # Test --expand (-E) and --nested_anon_include (-a, -A) options.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Type expansion and anonymous struct options."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -43,8 +43,7 @@ struct rect g1;
 struct with_anon g2;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>"$outdir/cc.err"
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>"$outdir/cc.err"; then
 	error_log "FAIL: compilation failed"
 	if [ -s "$outdir/cc.err" ]; then
 		cat "$outdir/cc.err" | head -10 | while read line; do error_log "$line"; done

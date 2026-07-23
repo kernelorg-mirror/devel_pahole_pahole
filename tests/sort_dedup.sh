@@ -6,14 +6,14 @@
 # deduplication path and type__compare_members_types().
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Sort with multi-CU deduplication."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -69,7 +69,7 @@ if ! $CC -g -c -o "$obj_b" "$src_b" 2>"$outdir/cc.log"; then
 fi
 
 # Link into a single multi-CU object
-if command -v ${LD%% *} > /dev/null 2>&1; then
+if command -v "${LD%% *}" > /dev/null 2>&1; then
 	if ! $LD -r -o "$obj" "$obj_a" "$obj_b" 2>"$outdir/ld.log"; then
 		info_log "$(cat "$outdir/ld.log")"
 		error_log "FAIL: ld -r failed"

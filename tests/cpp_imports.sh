@@ -11,14 +11,14 @@
 #      when enum foo and struct foo coexist, the second gets a "__1" suffix
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "C++ value parameter pack and shadow definition disambiguation."
 
 CXX=${CXX:-g++}
-if ! command -v ${CXX%% *} > /dev/null 2>&1; then
+if ! command -v "${CXX%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CXX not available"
 	test_skip
 fi

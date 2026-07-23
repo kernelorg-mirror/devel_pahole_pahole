@@ -8,14 +8,14 @@
 # endianness mistakes like using be64toh on sub-8-byte blocks.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "DW_FORM_block byte order conversion."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -128,14 +128,12 @@ int main(void)
 EOF
 
 $CC -std=c11 -Wall -Werror -o "$outdir/block_endian_test" \
-	"$outdir/block_endian_test.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! "$outdir/block_endian_test.c" 2>/dev/null; then
 	error_log "FAIL: failed to compile block_endian_test"
 	test_fail
 fi
 
-output=$("$outdir/block_endian_test" 2>&1)
-if [ $? -ne 0 ]; then
+if ! output=$("$outdir/block_endian_test" 2>&1); then
 	error_log "FAIL: block endian conversion test failed:"
 	error_log "$output"
 	test_fail

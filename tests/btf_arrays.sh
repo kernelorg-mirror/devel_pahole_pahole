@@ -19,14 +19,14 @@
 #  3. Array sizes are preserved across the encode→load round-trip
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "BTF multi-dimensional array encoding and round-trip."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -50,8 +50,7 @@ struct multidim {
 struct multidim g;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
@@ -59,8 +58,7 @@ fi
 # --- BTF encoding ---
 
 btf="$outdir/arrays.btf"
-pahole --btf_encode_detached="$btf" "$obj" 2>/dev/null
-if [ $? -ne 0 ] || [ ! -s "$btf" ]; then
+if ! pahole --btf_encode_detached="$btf" "$obj" 2>/dev/null || [ ! -s "$btf" ]; then
 	error_log "FAIL: pahole --btf_encode_detached failed"
 	test_fail
 fi
@@ -107,8 +105,7 @@ info_log "a2d type_id=$a2d_type, a3d type_id=$a3d_type (distinct): ok"
 # --- Check 3: round-trip via pahole -F btf ---
 # In-place encoding then reload via BTF frontend must match DWARF output.
 
-pahole -J "$obj" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole -J "$obj" 2>/dev/null; then
 	error_log "FAIL: pahole -J in-place encoding failed"
 	test_fail
 fi

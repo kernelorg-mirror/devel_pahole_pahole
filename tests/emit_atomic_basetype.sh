@@ -19,14 +19,14 @@
 # ensuring every branch in base_type__emit_definitions is covered.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Legacy atomic_ base type emission via --compile (hand-crafted DWARF)."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available (need gas assembler)"
 	test_skip
 fi

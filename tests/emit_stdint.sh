@@ -16,14 +16,14 @@
 # --skip_emitting_atomic_typedefs is accepted.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "DW_TAG_atomic_type member handling via --compile."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -114,8 +114,7 @@ fi
 # Exercises the option parsing path.  The actual suppression depends
 # on conf_fprintf propagation through the emission chain which may
 # not reach base_type__emit_definitions in all display paths.
-skip_output=$(pahole --compile --skip_emitting_atomic_typedefs "$obj" 2>/dev/null)
-if [ $? -ne 0 ]; then
+if ! pahole --compile --skip_emitting_atomic_typedefs "$obj" > /dev/null 2>&1; then
 	error_log "FAIL: --skip_emitting_atomic_typedefs exited non-zero"
 	test_fail
 fi

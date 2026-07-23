@@ -23,8 +23,8 @@
 #  - at least one loaded module whose debuginfo is also in debuginfod
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Split BTF encoding (vmlinux base + kernel module)."
@@ -86,8 +86,7 @@ info_log "module: $mod_name ($mod_path)"
 # --- Encode vmlinux → base BTF ---
 
 base_btf="$outdir/vmlinux.btf"
-pahole --btf_features=default --btf_encode_detached="$base_btf" "$vmlinux" 2>/dev/null
-if [ $? -ne 0 ] || [ ! -s "$base_btf" ]; then
+if ! pahole --btf_features=default --btf_encode_detached="$base_btf" "$vmlinux" 2>/dev/null || [ ! -s "$base_btf" ]; then
 	error_log "FAIL: pahole failed to encode vmlinux BTF"
 	test_fail
 fi
@@ -101,7 +100,7 @@ pahole --btf_features=default \
        --btf_base="$base_btf" \
        --btf_encode_detached="$split_btf" \
        "$mod_path" 2>/dev/null
-if [ $? -ne 0 ] || [ ! -s "$split_btf" ]; then
+if ! [ -s "$split_btf" ]; then
 	error_log "FAIL: pahole failed to encode split BTF for $mod_name"
 	test_fail
 fi

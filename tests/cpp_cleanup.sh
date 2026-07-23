@@ -13,14 +13,14 @@
 # uses a small C program that explicitly exercises pahole's cleanup paths.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "C++ cleanup: delete_tags coverage for lexblock, parameter packs."
 
 CXX=${CXX:-g++}
-if ! command -v ${CXX%% *} > /dev/null 2>&1; then
+if ! command -v "${CXX%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CXX not available"
 	test_skip
 fi
@@ -77,8 +77,7 @@ Container<int, float> g_container;
 int g_result = compute(1, 2, 3, 4);
 EOF
 
-$CXX -std=c++11 -g -c -o "$outdir/cleanup_test.o" "$outdir/cleanup_test.cpp" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CXX -std=c++11 -g -c -o "$outdir/cleanup_test.o" "$outdir/cleanup_test.cpp" 2>/dev/null; then
 	error_log "FAIL: C++ compilation failed"
 	test_fail
 fi
@@ -88,8 +87,7 @@ fi
 # various options exercises different code paths.
 
 # Basic run: loads CU, processes all tags, cleanup on exit
-pahole "$outdir/cleanup_test.o" > "$outdir/pahole_basic.txt" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole "$outdir/cleanup_test.o" > "$outdir/pahole_basic.txt" 2>/dev/null; then
 	error_log "FAIL: pahole basic run failed"
 	test_fail
 fi
@@ -103,8 +101,7 @@ if ! grep -q "struct Container" "$outdir/pahole_basic.txt"; then
 fi
 
 # Run with --class to exercise per-class processing and cleanup
-pahole -C Container "$outdir/cleanup_test.o" > "$outdir/pahole_class.txt" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole -C Container "$outdir/cleanup_test.o" > "$outdir/pahole_class.txt" 2>/dev/null; then
 	error_log "FAIL: pahole -C Container failed"
 	test_fail
 fi
@@ -112,8 +109,7 @@ info_log "   pahole -C Container (targeted lookup + cleanup): ok"
 
 # Run pfunct if available to exercise function parameter cleanup paths
 if command -v pfunct > /dev/null 2>&1; then
-	pfunct "$outdir/cleanup_test.o" > "$outdir/pfunct.txt" 2>/dev/null
-	if [ $? -ne 0 ]; then
+	if ! pfunct "$outdir/cleanup_test.o" > "$outdir/pfunct.txt" 2>/dev/null; then
 		error_log "FAIL: pfunct failed"
 		test_fail
 	fi

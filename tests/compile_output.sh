@@ -5,14 +5,14 @@
 # Test --compile, --classes_as_structs, and --structs/--unions.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Compilable output and type filtering."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -36,8 +36,7 @@ struct point g1;
 union variant g2;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
@@ -83,7 +82,7 @@ info_log "--unions: ok"
 
 # --classes_as_structs: requires C++ class input
 CXX=${CXX:-g++}
-if ! command -v ${CXX%% *} > /dev/null 2>&1; then
+if ! command -v "${CXX%% *}" > /dev/null 2>&1; then
 	info_log "skip --classes_as_structs: $CXX not available"
 	test_pass
 fi
@@ -101,8 +100,7 @@ public:
 Widget g;
 EOF
 
-$CXX -g -c -o "$cxx_obj" "$cxx_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CXX -g -c -o "$cxx_obj" "$cxx_src" 2>/dev/null; then
 	error_log "FAIL: C++ compilation failed"
 	test_fail
 fi

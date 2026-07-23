@@ -5,14 +5,14 @@
 # Test pfunct --symtab, --class, --compile and -b (expand_types) paths.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "pfunct coverage: symtab, class, expand_types, compile."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -60,8 +60,7 @@ void no_params(void) { }
 int global_var = 42;
 EOF
 
-$CC -g -O0 -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi

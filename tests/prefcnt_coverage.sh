@@ -9,14 +9,14 @@
 # inlined subroutines, and lexical blocks.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "prefcnt.c: reference counting coverage."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -68,17 +68,14 @@ int use_outer(struct outer *o) {
 EOF
 
 # -O2 to ensure inlining and complex DWARF
-$CC -g -O2 -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O2 -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
 
 # prefcnt counts type references — exercises all the refcnt_* functions
-output=$(prefcnt "$obj" 2>/dev/null)
-rc=$?
-if [ $rc -ne 0 ]; then
-	error_log "FAIL: prefcnt exited $rc"
+if ! prefcnt "$obj" > /dev/null 2>&1; then
+	error_log "FAIL: prefcnt exited non-zero"
 	test_fail
 fi
 # prefcnt may produce no stdout (it counts, may not print anything by default)
@@ -86,18 +83,15 @@ info_log "   prefcnt (optimized): ok (exit $rc)"
 
 # Also test with an unoptimized build to get DW_TAG_variable and DW_TAG_lexical_block
 obj2="$outdir/refcnt_O0.o"
-$CC -g -O0 -c -o "$obj2" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$obj2" "$src" 2>/dev/null; then
 	error_log "FAIL: O0 compilation failed"
 	test_fail
 fi
 
-output=$(prefcnt "$obj2" 2>/dev/null)
-rc=$?
-if [ $rc -ne 0 ]; then
-	error_log "FAIL: prefcnt (O0) exited $rc"
+if ! prefcnt "$obj2" > /dev/null 2>&1; then
+	error_log "FAIL: prefcnt (O0) exited non-zero"
 	test_fail
 fi
-info_log "   prefcnt (unoptimized): ok (exit $rc)"
+info_log "   prefcnt (unoptimized): ok"
 
 test_pass

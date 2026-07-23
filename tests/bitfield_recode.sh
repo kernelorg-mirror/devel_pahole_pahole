@@ -6,14 +6,14 @@
 # inline expansions, enumerations, and subroutine types.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "dwarf_loader coverage: bitfields, templates, enums, inlines."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -79,8 +79,7 @@ enum color g_color;
 enum big_enum g_big;
 EOF
 
-$CC -g -O2 -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O2 -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
@@ -163,7 +162,7 @@ fi
 info_log "   BTF encode/decode with bitfields: ok"
 
 CXX=${CXX:-g++}
-if command -v ${CXX%% *} > /dev/null 2>&1; then
+if command -v "${CXX%% *}" > /dev/null 2>&1; then
 	cxx_src="$outdir/templates.cpp"
 	cxx_obj="$outdir/templates.o"
 
@@ -189,8 +188,7 @@ pair<int, long> gp;
 ns::inner gi;
 CXXEOF
 
-	$CXX -g -c -o "$cxx_obj" "$cxx_src" 2>/dev/null
-	if [ $? -ne 0 ]; then
+	if ! $CXX -g -c -o "$cxx_obj" "$cxx_src" 2>/dev/null; then
 		info_log "   skip: C++ compilation failed"
 	else
 		output=$(pahole "$cxx_obj" 2>/dev/null)

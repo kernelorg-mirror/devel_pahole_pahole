@@ -14,7 +14,7 @@ trap cleanup EXIT
 title_log "Bitfield typedef recoding (tag__recode_dwarf_bitfield)."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -57,8 +57,7 @@ struct bf_chained g_ch;
 struct bf_plain   g_pl;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
@@ -125,8 +124,7 @@ info_log "bf_typedef and bf_plain both report size $size_td: ok"
 # Encode DWARF to BTF in-place, then reload via pahole -F btf and
 # verify that the typedef'd bitfield widths survive the conversion.
 
-pahole -J "$obj" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole -J "$obj" 2>/dev/null; then
 	error_log "FAIL: pahole -J (in-place BTF encoding) failed"
 	test_fail
 fi
@@ -169,8 +167,7 @@ info_log "BTF round-trip preserves typedef'd bitfield widths: ok"
 # Optional: cross-check with bpftool if available
 if command -v bpftool > /dev/null 2>&1; then
 	btf_file=$(make_tmpfile)
-	pahole --btf_encode_detached="$btf_file" "$obj" 2>/dev/null
-	if [ $? -ne 0 ] || [ ! -s "$btf_file" ]; then
+	if ! pahole --btf_encode_detached="$btf_file" "$obj" 2>/dev/null || [ ! -s "$btf_file" ]; then
 		error_log "FAIL: pahole --btf_encode_detached failed"
 		test_fail
 	fi

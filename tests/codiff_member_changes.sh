@@ -7,14 +7,14 @@
 # Exercises uncovered codiff.c paths (lines 109-298).
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "codiff member change coverage."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -57,13 +57,11 @@ long process_record(struct record *r, int extra) {
 struct record g_rec;
 EOF
 
-$CC -g -c -o "$outdir/v1.o" "$outdir/v1.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/v1.o" "$outdir/v1.c" 2>/dev/null; then
 	error_log "FAIL: v1 compilation failed"
 	test_fail
 fi
-$CC -g -c -o "$outdir/v2.o" "$outdir/v2.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/v2.o" "$outdir/v2.c" 2>/dev/null; then
 	error_log "FAIL: v2 compilation failed"
 	test_fail
 fi

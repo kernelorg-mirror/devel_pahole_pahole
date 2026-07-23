@@ -10,8 +10,8 @@
 # in dwarves.c when looking up the target struct by name.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap 'rm -rf "$outdir"' EXIT
 
 title_log "ctracer: struct method tracing generation."

@@ -11,8 +11,8 @@
 # forcing CU merging.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Compare parallel vs merged CU loading for inter-CU type references."

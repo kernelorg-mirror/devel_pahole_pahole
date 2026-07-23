@@ -5,14 +5,14 @@
 # Test C++ class features: inheritance and namespace printing.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "C++ inheritance and namespace printing."
 
 CXX=${CXX:-g++}
-if ! command -v ${CXX%% *} > /dev/null 2>&1; then
+if ! command -v "${CXX%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CXX not available"
 	test_skip
 fi
@@ -38,8 +38,7 @@ mylib::Derived g1;
 mylib::VDerived g2;
 EOF
 
-$CXX -g -std=c++11 -c -o "$cxx_obj" "$cxx_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CXX -g -std=c++11 -c -o "$cxx_obj" "$cxx_src" 2>/dev/null; then
 	error_log "FAIL: C++ compilation failed"
 	test_fail
 fi

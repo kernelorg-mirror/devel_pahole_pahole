@@ -7,14 +7,14 @@
 # handling in dwarves_fprintf.c.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "C++ namespace and using-declaration display."
 
 CXX=${CXX:-g++}
-if ! command -v ${CXX%% *} > /dev/null 2>&1; then
+if ! command -v "${CXX%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CXX not available"
 	test_skip
 fi
@@ -45,15 +45,13 @@ outer::InOuter g_outer;
 outer::inner::Nested g_nested;
 EOF
 
-$CXX -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CXX -g -c -o "$obj" "$src" 2>/dev/null; then
 	info_log "skip: C++ compilation failed (compiler may not support this)"
 	test_skip
 fi
 
 # Test 1: pahole -C Nested should find the struct and show its members
-output=$(pahole -C Nested "$obj" 2>/dev/null)
-if [ $? -ne 0 ]; then
+if ! output=$(pahole -C Nested "$obj" 2>/dev/null); then
 	error_log "FAIL: pahole -C Nested returned error"
 	test_fail
 fi
@@ -64,8 +62,7 @@ fi
 info_log "pahole -C Nested: ok"
 
 # Test 2: pahole -C InOuter should find the struct with the nested member
-output=$(pahole -C InOuter "$obj" 2>/dev/null)
-if [ $? -ne 0 ]; then
+if ! output=$(pahole -C InOuter "$obj" 2>/dev/null); then
 	error_log "FAIL: pahole -C InOuter returned error"
 	test_fail
 fi
@@ -76,8 +73,7 @@ fi
 info_log "pahole -C InOuter: ok"
 
 # Test 3: pahole --show_private_classes should list all structs without error
-output=$(pahole --show_private_classes "$obj" 2>/dev/null)
-if [ $? -ne 0 ]; then
+if ! output=$(pahole --show_private_classes "$obj" 2>/dev/null); then
 	error_log "FAIL: pahole --show_private_classes returned error"
 	test_fail
 fi
@@ -97,8 +93,7 @@ if ! command -v pdwtags > /dev/null 2>&1; then
 	# still verify that types inside namespaces are found and displayed.
 	info_log "   skip pdwtags checks: pdwtags not available"
 else
-	full_output=$(pdwtags "$obj" 2>"$outdir/pdwtags.log")
-	if [ $? -ne 0 ]; then
+	if ! full_output=$(pdwtags "$obj" 2>"$outdir/pdwtags.log"); then
 		error_log "FAIL: pdwtags returned error"
 		info_log "$(cat "$outdir/pdwtags.log")"
 		test_fail

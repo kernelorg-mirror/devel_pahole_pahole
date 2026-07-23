@@ -9,14 +9,14 @@
 #   - pglobal.c: verbose variable listing
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Small files coverage: elf_symtab, gobuffer, dutil, pglobal."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -40,8 +40,7 @@ const char *g_str = "hello";
 int g_arr[4] = { 1, 2, 3, 4 };
 EOF
 
-$CC -g -O0 -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
@@ -67,8 +66,7 @@ if command -v pfunct > /dev/null 2>&1; then
 	# paths when DWARF sections are missing
 	stripped="$outdir/stripped.o"
 	cp "$obj" "$stripped"
-	strip --strip-debug "$stripped" 2>/dev/null
-	if [ $? -eq 0 ]; then
+	if strip --strip-debug "$stripped" 2>/dev/null; then
 		output=$(pfunct --symtab "$stripped" 2>/dev/null)
 		rc=$?
 		# pfunct --symtab on a stripped object may or may not produce
@@ -156,8 +154,7 @@ struct bss_data g_bss;
 int g_zero;
 EOF
 
-$CC -g -O0 -c -o "$bss_obj" "$bss_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$bss_obj" "$bss_src" 2>/dev/null; then
 	error_log "FAIL: BSS source compilation failed"
 	test_fail
 fi

@@ -15,14 +15,14 @@
 #   to BTF_KIND_ENUM.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "BTF FLOAT and ENUM64 type encoding."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -51,15 +51,13 @@ enum small_e{ SMALL_A  = 1             } small_e_var;
 struct floats_test ft;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
 
 btf_default="$outdir/default.btf"
-pahole --btf_features=default --btf_encode_detached="$btf_default" "$obj" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole --btf_features=default --btf_encode_detached="$btf_default" "$obj" 2>/dev/null; then
 	error_log "FAIL: pahole BTF encoding (default features) failed"
 	test_fail
 fi
@@ -126,8 +124,7 @@ if [ "$has_enum64" -eq 1 ]; then
 	# Construct a feature string with all default features except enum64.
 	# Also filter distilled_base which requires --btf_base.
 	features_no64=$(pahole --supported_btf_features 2>/dev/null | tr ',' '\n' | grep -vE '^(enum64|distilled_base)$' | tr '\n' ',' | sed 's/,$//')
-	pahole --btf_features="$features_no64" --btf_encode_detached="$btf_no64" "$obj" 2>/dev/null
-	if [ $? -ne 0 ]; then
+	if ! pahole --btf_features="$features_no64" --btf_encode_detached="$btf_no64" "$obj" 2>/dev/null; then
 		error_log "FAIL: pahole BTF encoding (no enum64) failed"
 		test_fail
 	fi

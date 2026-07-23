@@ -6,14 +6,14 @@
 # enum edge cases, complex function signatures, and various feature flags.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "BTF encoder coverage."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -91,8 +91,7 @@ const char *g_str = "hello";
 int g_arr[4] = { 1, 2, 3, 4 };
 EOF
 
-$CC -g -O0 -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
@@ -200,8 +199,7 @@ struct has_enums {
 struct has_enums g_he;
 EOF
 
-$CC -g -c -o "$enum_obj" "$enum_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$enum_obj" "$enum_src" 2>/dev/null; then
 	error_log "FAIL: enum compilation failed"
 	test_fail
 fi
@@ -259,8 +257,7 @@ struct param_s g_ps;
 union param_u g_pu;
 EOF
 
-$CC -g -O0 -c -o "$funcs_obj" "$funcs_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$funcs_obj" "$funcs_src" 2>/dev/null; then
 	error_log "FAIL: funcs compilation failed"
 	test_fail
 fi
@@ -292,19 +289,16 @@ int fn_b(struct cu_b *b) { return (int)b->y; }
 struct cu_b g_b;
 EOF
 
-$CC -g -c -o "$outdir/multi_a.o" "$multi_a" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/multi_a.o" "$multi_a" 2>/dev/null; then
 	error_log "FAIL: multi_a compilation failed"
 	test_fail
 fi
-$CC -g -c -o "$outdir/multi_b.o" "$multi_b" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/multi_b.o" "$multi_b" 2>/dev/null; then
 	error_log "FAIL: multi_b compilation failed"
 	test_fail
 fi
 if command -v ld > /dev/null 2>&1; then
-	ld -r -o "$outdir/multi.o" "$outdir/multi_a.o" "$outdir/multi_b.o" 2>/dev/null
-	if [ $? -eq 0 ]; then
+	if ld -r -o "$outdir/multi.o" "$outdir/multi_a.o" "$outdir/multi_b.o" 2>/dev/null; then
 		pahole -J -V --btf_features=default,var "$outdir/multi.o" >/dev/null 2>&1
 		rc=$?
 		if [ $rc -ne 0 ]; then

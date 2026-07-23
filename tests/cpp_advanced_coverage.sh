@@ -9,14 +9,14 @@
 # These paths need specific C++ features to generate the right DWARF.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "C++ advanced DWARF tag coverage."
 
 CXX=${CXX:-g++}
-if ! command -v ${CXX%% *} > /dev/null 2>&1; then
+if ! command -v "${CXX%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CXX not available"
 	test_skip
 fi
@@ -55,8 +55,7 @@ Wrapper<Container, int> g_wci;
 int use_constexpr(void) { return MAX_SIZE + MIN_SIZE; }
 EOF
 
-$CXX -g -O0 -std=c++11 -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CXX -g -O0 -std=c++11 -c -o "$obj" "$src" 2>/dev/null; then
 	info_log "skip: C++11 compilation failed"
 	test_skip
 fi

@@ -10,14 +10,14 @@
 #  - --packable detection of structs with holes
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "dwarves_emit.c / dwarves_reorganize.c coverage."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -82,8 +82,7 @@ int emit_test_func(anon_struct_t *s, fn_ptr_t cb) {
 }
 EOF
 
-$CC -g -O0 -c -o "$emit_obj" "$emit_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$emit_obj" "$emit_src" 2>/dev/null; then
 	error_log "FAIL: emit source compilation failed"
 	test_fail
 fi
@@ -195,8 +194,7 @@ struct poorly_packed g_pp;
 struct mixed_holes g_mh;
 EOF
 
-$CC -g -O0 -c -o "$reorg_obj" "$reorg_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$reorg_obj" "$reorg_src" 2>/dev/null; then
 	error_log "FAIL: reorg source compilation failed"
 	test_fail
 fi

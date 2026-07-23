@@ -6,15 +6,15 @@
 # --word_size, and --supported_btf_features options.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Statistics and filtering options."
 
 TAB=$(printf '\t')
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -50,15 +50,13 @@ struct holey g2;
 struct with_ptrs g3;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
 
 # --supported_btf_features: no input file needed
-output=$(pahole --supported_btf_features 2>/dev/null)
-if [ $? -ne 0 ] || [ -z "$output" ]; then
+if ! output=$(pahole --supported_btf_features 2>/dev/null) || [ -z "$output" ]; then
 	error_log "FAIL: --supported_btf_features failed or empty"
 	test_fail
 fi

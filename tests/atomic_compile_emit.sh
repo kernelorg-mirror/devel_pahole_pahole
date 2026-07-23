@@ -9,14 +9,14 @@
 # atomic types, which requires _Atomic members + --compile.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "dwarves_emit.c: _Atomic type compile emission."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -48,8 +48,7 @@ struct atomic_types g_at;
 EOF
 
 # Need -std=c11 or later for _Atomic
-$CC -g -O0 -std=c11 -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -std=c11 -c -o "$obj" "$src" 2>/dev/null; then
 	info_log "skip: C11 _Atomic compilation failed"
 	test_skip
 fi
@@ -72,8 +71,7 @@ echo "$output" > "$outdir/atomic_emit.c"
 cat >> "$outdir/atomic_emit.c" << 'EOF'
 int main(void) { return sizeof(struct atomic_types); }
 EOF
-$CC -std=c11 -o /dev/null "$outdir/atomic_emit.c" 2>/dev/null
-if [ $? -eq 0 ]; then
+if $CC -std=c11 -o /dev/null "$outdir/atomic_emit.c" 2>/dev/null; then
 	info_log "   emitted code compiles: ok"
 else
 	# Atomic compilation may not fully round-trip due to typedef naming

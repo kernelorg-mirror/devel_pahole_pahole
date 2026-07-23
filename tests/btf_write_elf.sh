@@ -16,14 +16,14 @@
 #   no objcopy needed.  This is the "Existing .BTF section found" path.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "BTF encoding into ELF via pahole -J (btf_encoder__write_elf)."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -41,8 +41,7 @@ struct elf_test {
 struct elf_test g;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
@@ -53,8 +52,7 @@ cp "$obj" "$elf_obj"
 
 # --- Path 1: first -J encode, creates .BTF section via objcopy ---
 
-pahole -J "$elf_obj" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole -J "$elf_obj" 2>/dev/null; then
 	error_log "FAIL: first pahole -J failed (exit code != 0)"
 	test_fail
 fi
@@ -91,8 +89,7 @@ fi
 # This exercises the "Existing .BTF section found" branch that uses
 # elf_update() instead of objcopy.
 
-pahole -J "$elf_obj" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole -J "$elf_obj" 2>/dev/null; then
 	error_log "FAIL: second pahole -J failed (exit code != 0)"
 	test_fail
 fi

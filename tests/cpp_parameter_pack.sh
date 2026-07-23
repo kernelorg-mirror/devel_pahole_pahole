@@ -7,14 +7,14 @@
 # DW_TAG_formal_parameter_pack processing in dwarf_loader.c.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "C++ variadic template parameter pack handling."
 
 CXX=${CXX:-g++}
-if ! command -v ${CXX%% *} > /dev/null 2>&1; then
+if ! command -v "${CXX%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CXX not available"
 	test_skip
 fi
@@ -45,8 +45,7 @@ template int sum<int, double>(int, double);
 EOF
 
 # Step 1: Compile — skip if the compiler doesn't handle variadic templates
-$CXX -g -c -o "$cxx_obj" "$cxx_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CXX -g -c -o "$cxx_obj" "$cxx_src" 2>/dev/null; then
 	info_log "skip: $CXX failed to compile variadic template source"
 	test_skip
 fi
@@ -56,8 +55,7 @@ fi
 # (on the function) code paths in dwarf_loader.c without crashing.
 pahole_out="$outdir/pahole_full.txt"
 pahole_err="$outdir/pahole_full_err.txt"
-pahole "$cxx_obj" > "$pahole_out" 2>"$pahole_err"
-if [ $? -ne 0 ]; then
+if ! pahole "$cxx_obj" > "$pahole_out" 2>"$pahole_err"; then
 	error_log "FAIL: pahole returned an error"
 	cat "$pahole_err" >&2
 	test_fail
@@ -84,8 +82,7 @@ info_log "Tuple struct with 'size' member: OK"
 # template arguments so we list all functions and grep.
 if command -v pfunct > /dev/null 2>&1; then
 	pfunct_out="$outdir/pfunct_sum.txt"
-	pfunct "$cxx_obj" > "$pfunct_out" 2>&1
-	if [ $? -ne 0 ]; then
+	if ! pfunct "$cxx_obj" > "$pfunct_out" 2>&1; then
 		error_log "FAIL: pfunct returned an error"
 		cat "$pfunct_out" >&2
 		test_fail

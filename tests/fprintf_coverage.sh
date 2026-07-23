@@ -10,14 +10,14 @@
 #   - DW_TAG_imported_declaration, DW_TAG_imported_module (C++)
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "dwarves_fprintf.c coverage: fn-ptr members, labels, C++ types."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -72,8 +72,7 @@ struct with_fn_ptr g_fp;
 struct mixed_sizes g_ms;
 EOF
 
-$CC -g -O0 -c -o "$c_obj" "$c_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -O0 -c -o "$c_obj" "$c_src" 2>/dev/null; then
 	error_log "FAIL: C compilation failed"
 	test_fail
 fi
@@ -138,7 +137,7 @@ fi
 # ---------------------------------------------------------------
 
 CXX=${CXX:-g++}
-if ! command -v ${CXX%% *} > /dev/null 2>&1; then
+if ! command -v "${CXX%% *}" > /dev/null 2>&1; then
 	info_log "   skip: C++ tests — $CXX not available"
 	test_pass
 fi
@@ -175,8 +174,7 @@ using namespace util;
 Helper g_helper;
 EOF
 
-$CXX -g -O0 -c -o "$cpp_obj" "$cpp_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CXX -g -O0 -c -o "$cpp_obj" "$cpp_src" 2>/dev/null; then
 	info_log "   skip: C++ compilation failed"
 	test_pass
 fi

@@ -7,14 +7,14 @@
 # and btf__tag_bpf_arena_ptr in btf_encoder.c.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "BTF arena type tag encoding for kfuncs."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -89,8 +89,7 @@ void *(*alloc_ptr)(void *, int) = bpf_arena_alloc;
 void (*free_ptr)(void *, void *, int) = bpf_arena_free;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
@@ -105,8 +104,7 @@ info_log ".BTF_ids section: ok"
 btf="$outdir/arena.btf"
 
 # Encode with kfunc tagging and arena attributes enabled
-pahole --btf_features=default,attributes --btf_encode_detached="$btf" "$obj" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole --btf_features=default,attributes --btf_encode_detached="$btf" "$obj" 2>/dev/null; then
 	error_log "FAIL: pahole BTF encoding failed"
 	test_fail
 fi

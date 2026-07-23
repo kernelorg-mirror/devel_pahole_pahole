@@ -19,14 +19,14 @@
 #  4. Different nelems prevents merging (int[8] vs int[16])
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "BTF deduplication of array types across CUs."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -35,7 +35,7 @@ fi
 # fall back to using $CC -r -nostdlib if ld is missing.
 LD=${LD:-ld}
 use_cc_link=0
-if command -v ${LD%% *} > /dev/null 2>&1; then
+if command -v "${LD%% *}" > /dev/null 2>&1; then
 	: # LD is available
 else
 	use_cc_link=1
@@ -71,20 +71,17 @@ EOF
 
 # --- Compile each CU separately ---
 
-$CC -g -c -o "$outdir/cu1.o" "$outdir/cu1.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/cu1.o" "$outdir/cu1.c" 2>/dev/null; then
 	error_log "FAIL: compilation of cu1.c failed"
 	test_fail
 fi
 
-$CC -g -c -o "$outdir/cu2.o" "$outdir/cu2.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/cu2.o" "$outdir/cu2.c" 2>/dev/null; then
 	error_log "FAIL: compilation of cu2.c failed"
 	test_fail
 fi
 
-$CC -g -c -o "$outdir/cu3.o" "$outdir/cu3.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/cu3.o" "$outdir/cu3.c" 2>/dev/null; then
 	error_log "FAIL: compilation of cu3.c failed"
 	test_fail
 fi
@@ -92,21 +89,22 @@ fi
 # --- Partial link into one multi-CU object ---
 
 if [ "$use_cc_link" -eq 0 ]; then
-	$LD -r -o "$outdir/combined.o" "$outdir/cu1.o" "$outdir/cu2.o" "$outdir/cu3.o" 2>/dev/null
+	if ! $LD -r -o "$outdir/combined.o" "$outdir/cu1.o" "$outdir/cu2.o" "$outdir/cu3.o" 2>/dev/null; then
+		error_log "FAIL: partial link (ld -r) failed"
+		test_fail
+	fi
 else
-	$CC -r -nostdlib -o "$outdir/combined.o" "$outdir/cu1.o" "$outdir/cu2.o" "$outdir/cu3.o" 2>/dev/null
-fi
-if [ $? -ne 0 ]; then
-	error_log "FAIL: partial link (ld -r) failed"
-	test_fail
+	if ! $CC -r -nostdlib -o "$outdir/combined.o" "$outdir/cu1.o" "$outdir/cu2.o" "$outdir/cu3.o" 2>/dev/null; then
+		error_log "FAIL: partial link (ld -r) failed"
+		test_fail
+	fi
 fi
 info_log "multi-CU object built via partial link: ok"
 
 # --- Test 1: BTF encoding with dedup succeeds ---
 
 btf="$outdir/dedup.btf"
-pahole --btf_encode_detached="$btf" "$outdir/combined.o" 2>/dev/null
-if [ $? -ne 0 ] || [ ! -s "$btf" ]; then
+if ! pahole --btf_encode_detached="$btf" "$outdir/combined.o" 2>/dev/null || [ ! -s "$btf" ]; then
 	error_log "FAIL: pahole --btf_encode_detached failed on multi-CU object"
 	test_fail
 fi
@@ -146,8 +144,7 @@ fi
 
 elf_obj="$outdir/combined_elf.o"
 cp "$outdir/combined.o" "$elf_obj"
-pahole -J "$elf_obj" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole -J "$elf_obj" 2>/dev/null; then
 	error_log "FAIL: pahole -J in-place encoding failed"
 	test_fail
 fi

@@ -20,14 +20,14 @@
 #  4. bpftool can dump the resulting BTF and finds expected types
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Distilled base BTF generation."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -69,23 +69,20 @@ EOF
 
 # --- Compile ---
 base_obj=$(make_tmpobj)
-$CC -g -c -o "$base_obj" "$base_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$base_obj" "$base_src" 2>/dev/null; then
 	error_log "FAIL: compilation of base source failed"
 	test_fail
 fi
 
 mod_obj=$(make_tmpobj)
-$CC -g -c -o "$mod_obj" "$mod_src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$mod_obj" "$mod_src" 2>/dev/null; then
 	error_log "FAIL: compilation of module source failed"
 	test_fail
 fi
 
 # --- Encode base BTF (detached, used as --btf_base input) ---
 base_btf="$outdir/base.btf"
-pahole --btf_encode_detached="$base_btf" "$base_obj" 2>/dev/null
-if [ $? -ne 0 ] || [ ! -s "$base_btf" ]; then
+if ! pahole --btf_encode_detached="$base_btf" "$base_obj" 2>/dev/null || [ ! -s "$base_btf" ]; then
 	error_log "FAIL: failed to encode base BTF"
 	test_fail
 fi
@@ -100,8 +97,7 @@ cp "$mod_obj" "$mod_elf"
 
 pahole -J --btf_base="$base_btf" \
        --btf_features=default,distilled_base \
-       "$mod_elf" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! "$mod_elf" 2>/dev/null; then
 	error_log "FAIL: pahole -J with distilled_base failed"
 	test_fail
 fi
@@ -127,8 +123,7 @@ cp "$mod_obj" "$mod_normal"
 
 pahole -J --btf_base="$base_btf" \
        --btf_features=default \
-       "$mod_normal" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! "$mod_normal" 2>/dev/null; then
 	error_log "FAIL: pahole -J without distilled_base failed"
 	test_fail
 fi

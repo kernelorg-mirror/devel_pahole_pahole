@@ -12,14 +12,14 @@
 # pahole must match.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "C++ template template parameter pretty printing round-trip."
 
 CXX=${CXX:-g++}
-if ! command -v ${CXX%% *} > /dev/null 2>&1; then
+if ! command -v "${CXX%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CXX not available"
 	test_skip
 fi
@@ -72,8 +72,7 @@ PackOfTTP<SingleContainer, SingleContainer> pott;
 EOF
 
 # Step 2: Compile the original source
-$CXX -g -c "$outdir/ttp.cpp" -o "$outdir/ttp.o" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CXX -g -c "$outdir/ttp.cpp" -o "$outdir/ttp.o" 2>/dev/null; then
 	error_log "FAIL: failed to compile original C++ source"
 	test_fail
 fi
@@ -99,8 +98,7 @@ if [ "$warnings" -ne 0 ]; then
 fi
 
 # Step 4: Generate compilable output from the original object
-pahole --compile --emit_variables "$outdir/ttp.o" > "$outdir/pass1.cpp" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole --compile --emit_variables "$outdir/ttp.o" > "$outdir/pass1.cpp" 2>/dev/null; then
 	error_log "FAIL: pahole --compile --emit_variables failed on original object"
 	test_fail
 fi
@@ -145,8 +143,7 @@ if ! grep -q 'template<typename> class\.\.\.' "$outdir/pass1.cpp"; then
 fi
 
 # Step 6: Compile the pahole output
-$CXX -g -x c++ -c "$outdir/pass1.cpp" -o "$outdir/pass1.o" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CXX -g -x c++ -c "$outdir/pass1.cpp" -o "$outdir/pass1.o" 2>/dev/null; then
 	error_log "FAIL: pahole output does not compile as C++"
 	info_log "Output was:"
 	cat "$outdir/pass1.cpp" >&2
@@ -154,8 +151,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Step 7: Generate compilable output from the recompiled object
-pahole --compile --emit_variables "$outdir/pass1.o" > "$outdir/pass2.cpp" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! pahole --compile --emit_variables "$outdir/pass1.o" > "$outdir/pass2.cpp" 2>/dev/null; then
 	error_log "FAIL: pahole --compile --emit_variables failed on recompiled object"
 	test_fail
 fi

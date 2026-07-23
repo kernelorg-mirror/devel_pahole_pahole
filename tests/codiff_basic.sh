@@ -5,14 +5,14 @@
 # Test codiff: compare DWARF info between two object files.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "codiff struct comparison."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -48,14 +48,12 @@ struct data {
 int process(struct data *d) { return d->id + (int)d->extra; }
 EOF
 
-$CC -g -c -o "$obj_v1" "$src_v1" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj_v1" "$src_v1" 2>/dev/null; then
 	error_log "FAIL: v1 compilation failed"
 	test_fail
 fi
 
-$CC -g -c -o "$obj_v2" "$src_v2" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj_v2" "$src_v2" 2>/dev/null; then
 	error_log "FAIL: v2 compilation failed"
 	test_fail
 fi

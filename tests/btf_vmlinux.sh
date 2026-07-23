@@ -7,8 +7,8 @@
 # that small .o test objects cannot reach.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "BTF encoding on vmlinux."

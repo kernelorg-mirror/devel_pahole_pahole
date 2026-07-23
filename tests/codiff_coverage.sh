@@ -5,14 +5,14 @@
 # Test codiff: --terse, --functions, --verbose, and multi-CU total diff paths.
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "codiff coverage: terse, functions, verbose, multi-CU."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -25,7 +25,7 @@ fi
 # LD may contain flags (e.g. "ld -m elf_x86_64"), strip them for the
 # availability check, same as the CC check above uses ${CC%% *}.
 LD=${LD:-ld}
-if ! command -v ${LD%% *} > /dev/null 2>&1; then
+if ! command -v "${LD%% *}" > /dev/null 2>&1; then
 	info_log "skip: $LD not available"
 	test_skip
 fi
@@ -71,34 +71,28 @@ struct gadget {
 int gadget_init(struct gadget *g) { return (int)g->serial + g->revision; }
 EOF
 
-$CC -g -c -o "$outdir/a_v1.o" "$outdir/a_v1.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/a_v1.o" "$outdir/a_v1.c" 2>/dev/null; then
 	error_log "FAIL: compilation of a_v1 failed"
 	test_fail
 fi
-$CC -g -c -o "$outdir/b_v1.o" "$outdir/b_v1.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/b_v1.o" "$outdir/b_v1.c" 2>/dev/null; then
 	error_log "FAIL: compilation of b_v1 failed"
 	test_fail
 fi
-$CC -g -c -o "$outdir/a_v2.o" "$outdir/a_v2.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/a_v2.o" "$outdir/a_v2.c" 2>/dev/null; then
 	error_log "FAIL: compilation of a_v2 failed"
 	test_fail
 fi
-$CC -g -c -o "$outdir/b_v2.o" "$outdir/b_v2.c" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$outdir/b_v2.o" "$outdir/b_v2.c" 2>/dev/null; then
 	error_log "FAIL: compilation of b_v2 failed"
 	test_fail
 fi
 
-$LD -r -o "$outdir/old.o" "$outdir/a_v1.o" "$outdir/b_v1.o" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $LD -r -o "$outdir/old.o" "$outdir/a_v1.o" "$outdir/b_v1.o" 2>/dev/null; then
 	error_log "FAIL: ld -r for old.o failed"
 	test_fail
 fi
-$LD -r -o "$outdir/new.o" "$outdir/a_v2.o" "$outdir/b_v2.o" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $LD -r -o "$outdir/new.o" "$outdir/a_v2.o" "$outdir/b_v2.o" 2>/dev/null; then
 	error_log "FAIL: ld -r for new.o failed"
 	test_fail
 fi

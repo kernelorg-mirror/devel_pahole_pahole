@@ -7,14 +7,14 @@
 #   --contains --recursive, --first_obj_only
 
 . "$(dirname "$0")/test_lib.sh"
-
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Format coverage: count, skip, structs, hex, contains, first_obj_only."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -35,8 +35,7 @@ struct item {
 struct item g_item;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: item compilation failed"
 	test_fail
 fi
@@ -113,8 +112,7 @@ struct point g_pt;
 union variant g_var;
 EOF
 
-$CC -g -c -o "$obj2" "$src2" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj2" "$src2" 2>/dev/null; then
 	error_log "FAIL: mixed compilation failed"
 	test_fail
 fi
@@ -173,8 +171,7 @@ struct outer g_outer;
 struct unrelated g_unrel;
 EOF
 
-$CC -g -c -o "$obj3" "$src3" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj3" "$src3" 2>/dev/null; then
 	error_log "FAIL: nested compilation failed"
 	test_fail
 fi
@@ -222,7 +219,7 @@ info_log "   -i base -d (--recursive): ok"
 # LD may contain flags (e.g. "ld -m elf_x86_64"), strip them for the
 # availability check, same as the CC check above uses ${CC%% *}.
 LD=${LD:-ld}
-if command -v ${LD%% *} > /dev/null 2>&1; then
+if command -v "${LD%% *}" > /dev/null 2>&1; then
 	cat > "$outdir/cu_a.c" << 'EOF'
 struct alpha { int a1; };
 struct alpha g_alpha;
@@ -234,9 +231,7 @@ EOF
 
 	$CC -g -c -o "$outdir/cu_a.o" "$outdir/cu_a.c" 2>/dev/null
 	$CC -g -c -o "$outdir/cu_b.o" "$outdir/cu_b.c" 2>/dev/null
-	$LD -r -o "$outdir/multi.o" "$outdir/cu_a.o" "$outdir/cu_b.o" 2>/dev/null
-
-	if [ $? -eq 0 ]; then
+	if $LD -r -o "$outdir/multi.o" "$outdir/cu_a.o" "$outdir/cu_b.o" 2>/dev/null; then
 		all_output=$(pahole "$outdir/multi.o" 2>/dev/null)
 		first_output=$(pahole --first_obj_only "$outdir/multi.o" 2>/dev/null)
 

@@ -9,12 +9,13 @@
 . "$(dirname "$0")/test_lib.sh"
 
 outdir=$(make_tmpdir)
+
 trap cleanup EXIT
 
 title_log "Auxiliary tools: pglobal, prefcnt, dtagnames."
 
 CC=${CC:-gcc}
-if ! command -v ${CC%% *} > /dev/null 2>&1; then
+if ! command -v "${CC%% *}" > /dev/null 2>&1; then
 	info_log "skip: $CC not available"
 	test_skip
 fi
@@ -37,16 +38,14 @@ struct tagged_s {
 struct tagged_s gs;
 EOF
 
-$CC -g -c -o "$obj" "$src" 2>/dev/null
-if [ $? -ne 0 ]; then
+if ! $CC -g -c -o "$obj" "$src" 2>/dev/null; then
 	error_log "FAIL: compilation failed"
 	test_fail
 fi
 
 # --- pglobal ---
 if command -v pglobal > /dev/null 2>&1; then
-	out=$(pglobal "$obj" 2>/dev/null)
-	if [ $? -ne 0 ]; then
+	if ! out=$(pglobal "$obj" 2>/dev/null); then
 		error_log "FAIL: pglobal exited with error"
 		test_fail
 	fi
@@ -57,8 +56,7 @@ fi
 
 # --- prefcnt ---
 if command -v prefcnt > /dev/null 2>&1; then
-	out=$(prefcnt "$obj" 2>/dev/null)
-	if [ $? -ne 0 ]; then
+	if ! out=$(prefcnt "$obj" 2>/dev/null); then
 		error_log "FAIL: prefcnt exited with error"
 		test_fail
 	fi
@@ -69,8 +67,7 @@ fi
 
 # --- dtagnames ---
 if command -v dtagnames > /dev/null 2>&1; then
-	out=$(dtagnames "$obj" 2>/dev/null)
-	if [ $? -ne 0 ]; then
+	if ! out=$(dtagnames "$obj" 2>/dev/null); then
 		error_log "FAIL: dtagnames exited with error"
 		test_fail
 	fi
