@@ -90,7 +90,24 @@ get_vmlinux()
 	vmlinux=${VMLINUX:-${vmlinux:-$1}}
 
 	if [ -z "$vmlinux" ] ; then
-		vmlinux=$(pahole --running_kernel_vmlinux)
+		# Try debuginfod for running kernel vmlinux
+		vmlinux=$(pahole --running_kernel_vmlinux 2>/dev/null)
+
+		if [ -z "$vmlinux" ] ; then
+			# Fallback: search standard vmlinux paths
+			for path in \
+				/usr/lib/debug/usr/lib/modules/*/vmlinux \
+				/usr/lib/debug/lib/modules/*/vmlinux \
+				/lib/modules/*/build/vmlinux \
+				/boot/vmlinux-* \
+				/boot/vmlinux; do
+				if [ -f "$path" ] && [ -r "$path" ]; then
+					vmlinux="$path"
+					break
+				fi
+			done
+		fi
+
 		if [ -z "$vmlinux" ] ; then
 			check_color_support
 			color_print ${RED} "Please specify a vmlinux file to operate on" >&2
