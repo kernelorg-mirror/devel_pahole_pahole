@@ -28,12 +28,13 @@ struct perf_dt_access {
 /*
  * One DSO the profile was collected from.  The JSON backend fills it from
  * the per-DSO "dso"/"build_id" fields perf emits, one "dsos" entry per DSO
- * with the types that had hits in it; the CTF backend registers a single
- * unknown DSO until the perf side learns to emit per-sample DSO ids
- * (perf_dso_info).  The build ID (a hex string) is the portable binary
- * identity: same build ID == same binary, whatever path it was found at.
- * NULL means "not present" (stripped binary, --no-buildid, vdso, or a
- * producer that predates the field).
+ * with the types that had hits in it; the CTF backend fills it from the
+ * perf_dso_info side events the converter emits once per DSO it resolved
+ * types in (an unknown DSO, with no build ID, for traces that predate
+ * them).  The build ID (a hex string) is the portable binary identity:
+ * same build ID == same binary, whatever path it was found at.  NULL means
+ * "not present" (stripped binary, --no-buildid, vdso, or a producer that
+ * predates the field).
  */
 struct perf_dt_dso {
 	char			*long_name;
@@ -72,7 +73,14 @@ struct perf_dt_profile {
 int perf_dt_profile__load_json(const char *path);
 int perf_dt_profile__load_ctf(const char *path);
 
+/* Replace the currently loaded profile (used by the CTF backend). */
+void perf_dt_profile__set(struct perf_dt_profile *p);
+
+/* Release a profile and everything it owns; NULL is a no-op. */
+void perf_dt_profile__delete(struct perf_dt_profile *p);
+
 /* Shared by the backends to populate the profile. */
+void perf_dt__oom_dropping(const char *what);
 uint32_t perf_dt_profile__find_or_add_dso(struct perf_dt_profile *p,
 					  const char *long_name,
 					  const char *build_id);

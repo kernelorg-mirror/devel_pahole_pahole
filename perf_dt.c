@@ -243,7 +243,7 @@ struct perf_dt_type *perf_dt_profile__find_or_add_type(struct perf_dt_profile *p
  * profile that gets printed is incomplete.  Say it once instead of silently
  * under-reporting the traffic, and stay quiet on the drops that follow.
  */
-static void perf_dt__oom_dropping(const char *what)
+void perf_dt__oom_dropping(const char *what)
 {
 	static bool warned;
 
@@ -279,22 +279,29 @@ void perf_dt_type__add_access(struct perf_dt_type *dt, uint64_t offset,
 	dt->nr_accesses++;
 }
 
+/* Release a profile and everything it owns (NULL is a no-op). */
+void perf_dt_profile__delete(struct perf_dt_profile *p)
+{
+	if (!p)
+		return;
+	for (size_t t = 0; t < p->nr_types; t++) {
+		free(p->types[t].name);
+		free(p->types[t].accesses);
+	}
+	for (size_t d = 0; d < p->nr_dsos; d++) {
+		free(p->dsos[d].long_name);
+		free(p->dsos[d].build_id);
+	}
+	zfree(&p->dsos);
+	zfree(&p->types);
+	zfree(&p);
+}
+
 /* Release the currently loaded profile, if any. */
 static void perf_dt_profile__free(void)
 {
-	if (!perf_dt_profile)
-		return;
-	for (size_t t = 0; t < perf_dt_profile->nr_types; t++) {
-		free(perf_dt_profile->types[t].name);
-		free(perf_dt_profile->types[t].accesses);
-	}
-	for (size_t d = 0; d < perf_dt_profile->nr_dsos; d++) {
-		free(perf_dt_profile->dsos[d].long_name);
-		free(perf_dt_profile->dsos[d].build_id);
-	}
-	zfree(&perf_dt_profile->dsos);
-	zfree(&perf_dt_profile->types);
-	zfree(&perf_dt_profile);
+	perf_dt_profile__delete(perf_dt_profile);
+	perf_dt_profile = NULL;
 }
 
 /*
@@ -757,6 +764,12 @@ int perf_dt_profile__load_ctf(const char *path)
 	return -1;
 }
 #endif
+
+void perf_dt_profile__set(struct perf_dt_profile *p)
+{
+	perf_dt_profile__free();
+	perf_dt_profile = p;
+}
 
 int perf_dt_profile__load(const char *path)
 {

@@ -66,6 +66,20 @@ find_package(argp REQUIRED)
 find_package(obstack REQUIRED)
 find_package(Python3 QUIET)
 
+# Optional: CTF reader backend (LTTng/CTF via libbabeltrace2). When present,
+# pahole can consume perf's `perf data convert --to-ctf=<dir>` output via
+# --perf-data-type=<dir>.
+find_package(PkgConfig QUIET)
+if (PkgConfig_FOUND)
+	pkg_check_modules(BABELTRACE2 QUIET babeltrace2)
+endif()
+if (BABELTRACE2_FOUND)
+	add_compile_definitions(HAVE_LIBBABELTRACE2)
+	message(STATUS "libbabeltrace2 found (${BABELTRACE2_VERSION}): CTF backend enabled")
+else()
+	message(STATUS "libbabeltrace2 not found: CTF backend disabled")
+endif()
+
 # make sure git submodule(s) are checked out
 find_package(Git QUIET)
 if(LIBBPF_EMBEDDED AND GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
@@ -157,6 +171,9 @@ endif()
 set(dwarves_LIB_SRCS dwarves.c dwarves_fprintf.c perf_dt.c gobuffer.c
 		     ctf_loader.c libctf.c btf_encoder.c btf_loader.c
 		     dwarf_loader.c dutil.c elf_symtab.c rbtree.c)
+if (BABELTRACE2_FOUND)
+	list(APPEND dwarves_LIB_SRCS perf_dt_ctf.c)
+endif()
 if (NOT LIBBPF_FOUND)
 	list(APPEND dwarves_LIB_SRCS $<TARGET_OBJECTS:bpf>)
 endif()
@@ -164,6 +181,10 @@ add_library(dwarves ${dwarves_LIB_SRCS})
 set_target_properties(dwarves PROPERTIES VERSION 1.0.0 SOVERSION 1)
 set_target_properties(dwarves PROPERTIES INTERFACE_LINK_LIBRARIES "")
 target_link_libraries(dwarves ${DWARF_LIBRARIES} ${ZLIB_LIBRARIES} ${LIBBPF_LIBRARIES} ${ARGP_LIBRARY} ${OBSTACK_LIBRARY})
+if (BABELTRACE2_FOUND)
+	target_include_directories(dwarves PRIVATE ${BABELTRACE2_INCLUDE_DIRS})
+	target_link_libraries(dwarves ${BABELTRACE2_LIBRARIES})
+endif()
 
 set(dwarves_emit_LIB_SRCS dwarves_emit.c)
 add_library(dwarves_emit ${dwarves_emit_LIB_SRCS})

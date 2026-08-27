@@ -597,13 +597,15 @@ one wants to know what if the installed version has some feature, i.e.: 118 inst
 When the prefix of the string is STRING, treat the string as STRING.
 
 .TP
-.B \-\-perf\-data\-type=FILE
+.B \-\-perf\-data\-type=FILE_OR_DIR
 Annotate the structs being printed with the data type access profile in
-FILE, as collected by perf's data type profiling: from a JSON file
+FILE_OR_DIR, as collected by perf's data type profiling: from a JSON file
 produced by
 .B perf report \-\-data\-type\-json
 or
-.BR "perf annotate \-\-data\-type \-\-data\-type\-json" .
+.BR "perf annotate \-\-data\-type \-\-data\-type\-json" ,
+or from a CTF directory produced by
+.BR "perf data convert \-\-to\-ctf" .
 The profile carries the build ID of the binary it was collected from, which
 is checked against the binary being analyzed: a mismatch skips that type's
 annotation with an error on stderr, a missing build ID on either side falls
