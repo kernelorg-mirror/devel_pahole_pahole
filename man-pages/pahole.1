@@ -636,6 +636,15 @@ instance can be and still be suggested as a cacheline group.  The default is
 1 microsecond, as members one code path walks together are that close, 0
 asks for accesses carrying the same timestamp.
 
+.TP
+.B \-\-color[=WHEN]
+When to use colours: always, never or auto (the default), where auto uses
+colours only when printing to a terminal and none when NO_COLOR is set or TERM
+is dumb.  An explicit \fB\-\-color=always\fR wins over both.  The hot fields of
+the \fB\-\-perf\-data\-type\fR annotations are marked in red (>= 5% of the
+accesses to the struct) and green (> 0.5%), the same bands used by 'perf
+report' and 'perf annotate' to colour their entries.
+
 .SH NOTES
 
 To enable the generation of debugging information in the Linux kernel build

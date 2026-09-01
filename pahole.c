@@ -1176,6 +1176,7 @@ ARGP_PROGRAM_VERSION_HOOK_DEF = dwarves_print_version;
 #define ARGP_perf_dt_show_all	   353
 #define ARGP_perf_dt_fs_window	   354
 #define ARGP_perf_dt_group_window  355
+#define ARGP_color		   356
 
 /* --btf_features=feature1[,feature2,..] allows us to specify
  * a list of requested BTF features or "default" to enable all default
@@ -1910,6 +1911,17 @@ static const struct argp_option pahole__options[] = {
 		.doc  = "With --perf-data-type on per-sample (CTF) data, how far apart co-accessed reads of members in different cachelines can be and still be suggested as a cacheline group (default 1, 0 asks for the same timestamp)"
 	},
 	{
+		.name  = "color",
+		.key   = ARGP_color,
+		.arg   = "[WHEN]",
+		.flags = OPTION_ARG_OPTIONAL,
+		.doc  = "When to use colours: always, never or auto (the default), where auto uses "
+			"colours only when printing to a terminal and none when NO_COLOR is set or "
+			"TERM is dumb.  An explicit --color=always wins over both.  Hot fields in "
+			"the --perf-data-type annotations are marked in red (>= 5% of the accesses "
+			"to the struct) and green (> 0.5%), as in 'perf report'"
+	},
+	{
 		.name = NULL,
 	}
 };
@@ -2135,6 +2147,19 @@ static error_t pahole__options_parser(int key, char *arg,
 		break;
 	case ARGP_perf_dt_group_window:
 		perf_dt_set_group_window(parse_window_usec(arg, "--perf-data-type-group-window"));
+		break;
+	case ARGP_color:
+		/* Bare --color enables colours, as in perf and git. */
+		if (!arg || !strcmp(arg, "always"))
+			perf_dt__set_color_when(PERF_DT_COLOR_ALWAYS);
+		else if (!strcmp(arg, "never"))
+			perf_dt__set_color_when(PERF_DT_COLOR_NEVER);
+		else if (!strcmp(arg, "auto"))
+			perf_dt__set_color_when(PERF_DT_COLOR_AUTO);
+		else {
+			fprintf(stderr, "pahole: --color: '%s' is not always, never or auto.\n", arg);
+			exit(EXIT_FAILURE);
+		}
 		break;
 	default:
 		return ARGP_ERR_UNKNOWN;

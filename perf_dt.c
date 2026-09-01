@@ -41,6 +41,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "dwarves.h"
 #include "perf_dt.h"
@@ -49,6 +50,74 @@
 #define PERF_DT_TOK_DEPTH 64
 
 static struct perf_dt_profile *perf_dt_profile;
+
+/*
+ * Heat bands, as a share of the accesses to the type being annotated.  These
+ * are the same thresholds perf uses to colour hot entries in 'perf report'
+ * and 'perf annotate' (MIN_RED 5.0 and MIN_GREEN 0.5 in
+ * tools/perf/util/color.h), so a field stands out in pahole exactly when the
+ * entry for it stands out in perf.
+ */
+#define PERF_DT_PCT_HOT	 5.0
+#define PERF_DT_PCT_WARM 0.5
+
+#define PERF_DT_COLOR_HOT   "\033[31m"	/* red   */
+#define PERF_DT_COLOR_WARM  "\033[32m"	/* green */
+#define PERF_DT_COLOR_RESET "\033[m"
+
+static enum perf_dt_color_when perf_dt_color_when = PERF_DT_COLOR_AUTO;
+
+void perf_dt__set_color_when(enum perf_dt_color_when when)
+{
+	perf_dt_color_when = when;
+}
+
+/* Whether annotations should be coloured on this stream. */
+static bool perf_dt__use_color(FILE *fp)
+{
+	const char *env;
+
+	switch (perf_dt_color_when) {
+	case PERF_DT_COLOR_NEVER:
+		return false;
+	case PERF_DT_COLOR_ALWAYS:
+		return true;
+	case PERF_DT_COLOR_AUTO:
+	default:
+		break;
+	}
+
+	/* An explicit --color=always above wins over these. */
+	env = getenv("NO_COLOR");
+	if (env != NULL && env[0] != '\0')
+		return false;
+
+	env = getenv("TERM");
+	if (env != NULL && strcmp(env, "dumb") == 0)
+		return false;
+
+	return isatty(fileno(fp)) != 0;
+}
+
+/* The colour for a member taking 'pct' percent of its type's accesses. */
+static const char *perf_dt__color(FILE *fp, double pct)
+{
+	if (!perf_dt__use_color(fp))
+		return "";
+
+	if (pct >= PERF_DT_PCT_HOT)
+		return PERF_DT_COLOR_HOT;
+	if (pct > PERF_DT_PCT_WARM)
+		return PERF_DT_COLOR_WARM;
+
+	return "";
+}
+
+/* Paired with perf_dt__color(): reset only when a colour was emitted. */
+static const char *perf_dt__color_reset(const char *color)
+{
+	return *color ? PERF_DT_COLOR_RESET : "";
+}
 
 static int json_key_eq(const char *buf, const jsmntok_t *t, const char *s)
 {
@@ -1462,6 +1531,7 @@ size_t perf_dt_class__fprintf_member(FILE *fp, const struct perf_dt_class *pdc,
 				     const struct class_member *member)
 {
 	const struct meminfo *m;
+	const char *color, *reset;
 	size_t printed;
 
 	if (!pdc)
@@ -1471,7 +1541,10 @@ size_t perf_dt_class__fprintf_member(FILE *fp, const struct perf_dt_class *pdc,
 	if (!m || (!m->nr_reads && !m->nr_writes))
 		return 0;
 
-	printed = fprintf(fp, " | %5.1f%%", mi_pct(pdc, m));
+	color = perf_dt__color(fp, mi_pct(pdc, m));
+	reset = perf_dt__color_reset(color);
+
+	printed = fprintf(fp, " | %s%5.1f%%", color, mi_pct(pdc, m));
 	if (m->nr_reads) {
 		printed += fprintf(fp, " R:");
 		printed += fprintf_nr(fp, m->nr_reads);
@@ -1480,6 +1553,7 @@ size_t perf_dt_class__fprintf_member(FILE *fp, const struct perf_dt_class *pdc,
 		printed += fprintf(fp, " W:");
 		printed += fprintf_nr(fp, m->nr_writes);
 	}
+	printed += fprintf(fp, "%s", reset);
 
 	return printed;
 }
@@ -1509,8 +1583,12 @@ size_t perf_dt_class__fprintf_block(FILE *fp, const struct perf_dt_class *pdc,
 	 * entirely, regardless of period.
 	 */
 	printed += fprintf(fp, "\n%.*s/* perf data-type profile (cachelines of %u bytes,"
+			      " %llu samples in %zu member%s, heat: hot >= %.1f%%, warm > %.1f%%,"
 			      " cachelines without hits omitted):",
-			  indent, tabs, cln);
+			   indent, tabs, cln,
+			   (unsigned long long)pdc->total, pdc->nr_with_hits,
+			   pdc->nr_with_hits == 1 ? "" : "s",
+			   PERF_DT_PCT_HOT, PERF_DT_PCT_WARM);
 
 	/*
 	 * The members are in offset order, hence ci is non-decreasing and a
@@ -1539,17 +1617,21 @@ size_t perf_dt_class__fprintf_block(FILE *fp, const struct perf_dt_class *pdc,
 				   indent, tabs, ci, ci * cln, ci * cln + cln - 1);
 
 		for (j = start; j < i; j++) {
-			printed += fprintf(fp, "\n%.*s     +%-4u %-28s sz=%-4u",
-					  indent, tabs, mi[j].off,
-					  mi[j].nm ?: "<anon>", mi[j].size);
+			const char *color = perf_dt__color(fp, mi_pct(pdc, &mi[j]));
+			const char *reset = perf_dt__color_reset(color);
+
+			printed += fprintf(fp, "\n%.*s     %s+%-4u %-28s sz=%-4u",
+					   indent, tabs, color, mi[j].off,
+					   mi[j].nm ?: "<anon>", mi[j].size);
 			if (mi[j].nr_reads)
 				printed += fprintf(fp, " nr_reads=%-5llu period_reads=%llu",
-						  (unsigned long long)mi[j].nr_reads,
-						  (unsigned long long)mi[j].period_reads);
+						   (unsigned long long)mi[j].nr_reads,
+						   (unsigned long long)mi[j].period_reads);
 			if (mi[j].nr_writes)
 				printed += fprintf(fp, " nr_writes=%-5llu period_writes=%llu",
-						  (unsigned long long)mi[j].nr_writes,
-						  (unsigned long long)mi[j].period_writes);
+						   (unsigned long long)mi[j].nr_writes,
+						   (unsigned long long)mi[j].period_writes);
+			printed += fprintf(fp, "%s", reset);
 		}
 
 		printed += cacheline__fprintf_false_sharing(fp, mi, nmem, ci,

@@ -148,6 +148,18 @@ bool perf_dt_profile__class_has_hits(const char *name, const struct cu *cu,
  * but not the member layout).  A missing build ID on either side falls back
  * to name+size matching, warning once per type.
  */
+/* When to use colours: never, always, or auto (the default), i.e. only when
+ * the output stream is a terminal and the user didn't opt out via NO_COLOR
+ * or TERM=dumb.  An explicit --color=always wins over both.
+ */
+enum perf_dt_color_when {
+	PERF_DT_COLOR_NEVER,
+	PERF_DT_COLOR_ALWAYS,
+	PERF_DT_COLOR_AUTO,
+};
+
+void perf_dt__set_color_when(enum perf_dt_color_when when);
+
 struct perf_dt_class;
 
 struct perf_dt_class *perf_dt_class__new(struct class *class, const struct cu *cu);

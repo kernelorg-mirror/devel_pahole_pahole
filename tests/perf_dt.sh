@@ -41,6 +41,10 @@
 # 20b. --quiet keeps the build-ID mismatch quiet as well
 # 21. The access counts also go inline, in each member's offset comment
 # 22. Members with no samples keep a plain offset comment
+# 23. --color=always marks hot fields red and warm ones green
+# 24. No colours by default (not a tty) and with --color=never
+# 25. --color=always wins over NO_COLOR
+# 26. The summary block is coloured too and spells out the heat bands
 # 27. The summary block prints only the cachelines that had hits, keeping
 #     the idle members of those cachelines as context
 
@@ -790,29 +794,113 @@ if ! echo "$inline_output" | grep "rb_left" | grep -qE "/\* +16 +8 \*/"; then
 fi
 info_log "members with no samples keep a plain offset comment: ok"
 
+# --- Check 23: --color=always marks hot fields red, warm ones green ---
+# The heat bands are a share of the accesses to the type, using the same
+# thresholds perf colours hot entries with in 'perf report'/'perf annotate'
+# (MIN_RED 5.0, MIN_GREEN 0.5): 6000/6060 = 99.0% is hot, 60/6060 = 1.0% is
+# warm, rb_left took no samples at all and is left alone.
+heat_json=$(mktemp "$outdir/heat.XXXXXX")
+cat > "$heat_json" << 'ENDJSON'
+{
+  "machine": { "cacheline_size": 64 },
+  "dsos": [
+    {
+      "dso": null,
+      "build_id": null,
+      "types": [
+        {
+          "type": "struct rb_node",
+          "size": 24,
+          "histograms": [
+            {
+              "event": "cpu/mem-loads,ldlat=30/P",
+              "samples": [
+                {"offset": 0, "nr_samples_load": 6000, "period_load": 60000, "nr_samples_store": 0, "period_store": 0},
+                {"offset": 8, "nr_samples_load": 60, "period_load": 600, "nr_samples_store": 0, "period_store": 0},
+                {"offset": 16, "nr_samples_load": 0, "period_load": 0, "nr_samples_store": 0, "period_store": 0}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+ENDJSON
+red=$(printf '\033[31m')
+green=$(printf '\033[32m')
+esc=$(printf '\033')
+color_output=$("$pahole_bin" -F btf --perf-data-type="$heat_json" --color=always -C rb_node "$vmlinux" 2>/dev/null)
+if [ $? -ne 0 ]; then
+	error_log "FAIL: --color=always run failed"
+	test_fail
+fi
+hot_line=$(echo "$color_output" | grep "__rb_parent_color")
+if ! echo "$hot_line" | grep -qF "$red" || ! echo "$hot_line" | grep -qF "99.0% R:6.0K"; then
+	error_log "FAIL: hottest member not marked red: $hot_line"
+	test_fail
+fi
+warm_line=$(echo "$color_output" | grep "rb_right")
+if ! echo "$warm_line" | grep -qF "$green" || ! echo "$warm_line" | grep -qF "1.0% R:60"; then
+	error_log "FAIL: warm member not marked green: $warm_line"
+	test_fail
+fi
+cold_line=$(echo "$color_output" | grep "rb_left")
+if echo "$cold_line" | grep -qF "$esc"; then
+	error_log "FAIL: member without samples is coloured: $cold_line"
+	test_fail
+fi
+info_log "--color=always marks hot fields red and warm ones green: ok"
 
-# --- Check 20b: --quiet keeps the build-ID mismatch quiet as well ---
-# The mismatch error goes through the print filter in a full-file run and
-# through the annotation path with an explicit -C: both stay quiet.
-"$pahole_bin" -F btf -q --perf-data-type="$bidmismatch_json" -C rb_node "$vmlinux" > /dev/null 2> "$outdir/quiet-bid.err"
+# --- Check 24: no colours by default here (not a tty) nor with --color=never ---
+if echo "$inline_output" | grep -qF "$esc"; then
+	error_log "FAIL: colour emitted when not printing to a terminal"
+	test_fail
+fi
+never_output=$("$pahole_bin" -F btf --perf-data-type="$heat_json" --color=never -C rb_node "$vmlinux" 2>/dev/null)
 if [ $? -ne 0 ]; then
-	error_log "FAIL: --quiet mismatch run with -C failed"
+	error_log "FAIL: --color=never run failed"
 	test_fail
 fi
-if [ -s "$outdir/quiet-bid.err" ]; then
-	error_log "FAIL: --quiet mismatch run with -C printed to stderr: $(cat "$outdir/quiet-bid.err")"
+if echo "$never_output" | grep -qF "$esc"; then
+	error_log "FAIL: --color=never emitted colours"
 	test_fail
 fi
-"$pahole_bin" -F btf -q --perf-data-type="$bidmismatch_json" "$vmlinux" > /dev/null 2> "$outdir/quiet-bid-full.err"
-if [ $? -ne 0 ]; then
-	error_log "FAIL: --quiet mismatch full-file run failed"
+# The counts are there, just not coloured.
+if ! echo "$never_output" | grep "rb_right" | grep -qF "1.0% R:60"; then
+	error_log "FAIL: --color=never lost the inline annotation: $(echo "$never_output" | grep rb_right)"
 	test_fail
 fi
-if [ -s "$outdir/quiet-bid-full.err" ]; then
-	error_log "FAIL: --quiet mismatch full-file run printed to stderr: $(cat "$outdir/quiet-bid-full.err")"
+info_log "no colours by default when not a tty, nor with --color=never: ok"
+
+# --- Check 25: an explicit --color=always wins over NO_COLOR ---
+nocolor_output=$(NO_COLOR=1 "$pahole_bin" -F btf --perf-data-type="$heat_json" --color=always -C rb_node "$vmlinux" 2>/dev/null)
+if ! echo "$nocolor_output" | grep "__rb_parent_color" | grep -qF "$red"; then
+	error_log "FAIL: NO_COLOR overrode an explicit --color=always"
 	test_fail
 fi
-info_log "--quiet keeps the build-ID mismatch quiet: ok"
+info_log "--color=always wins over NO_COLOR: ok"
+
+# --- Check 26: the summary block is coloured and spells out the heat bands ---
+# The block is the compact view, where all the members are listed: colour its
+# entries with the same bands as the inline annotations, and say in its header
+# what those bands are, so that the colours can be interpreted without having
+# to know about perf's thresholds.
+block_line=$(echo "$color_output" | grep "+0 ")
+if ! echo "$block_line" | grep -qF "$red" || ! echo "$block_line" | grep -qF "nr_reads=6000"; then
+	error_log "FAIL: hot entry in the summary block not marked red: $block_line"
+	test_fail
+fi
+if ! echo "$color_output" | grep "perf data-type profile" | grep -qF "heat: hot >= 5.0%, warm > 0.5%"; then
+	error_log "FAIL: summary block header does not spell out the heat bands"
+	test_fail
+fi
+# Without colours the entries keep the exact same alignment as before.
+if ! echo "$never_output" | grep -qE "^\s+\+0 +__rb_parent_color +sz=8 +nr_reads=6000"; then
+	error_log "FAIL: summary block entry alignment changed: $(echo "$never_output" | grep '+0 ')"
+	test_fail
+fi
+info_log "summary block coloured, with the heat bands in its header: ok"
 
 # --- Check 27: the summary block prints only the cachelines that had hits ---
 # A task_struct spans ~160 cachelines and only a handful see traffic: lines
@@ -885,6 +973,29 @@ if ! echo "$cl_stdout" | sed -n '/cacheline 0 \[0-63\]:/,$p' |
 	test_fail
 fi
 info_log "summary block prints only the cachelines that had hits: ok"
+
+# --- Check 20b: --quiet keeps the build-ID mismatch quiet as well ---
+# The mismatch error goes through the print filter in a full-file run and
+# through the annotation path with an explicit -C: both stay quiet.
+"$pahole_bin" -F btf -q --perf-data-type="$bidmismatch_json" -C rb_node "$vmlinux" > /dev/null 2> "$outdir/quiet-bid.err"
+if [ $? -ne 0 ]; then
+	error_log "FAIL: --quiet mismatch run with -C failed"
+	test_fail
+fi
+if [ -s "$outdir/quiet-bid.err" ]; then
+	error_log "FAIL: --quiet mismatch run with -C printed to stderr: $(cat "$outdir/quiet-bid.err")"
+	test_fail
+fi
+"$pahole_bin" -F btf -q --perf-data-type="$bidmismatch_json" "$vmlinux" > /dev/null 2> "$outdir/quiet-bid-full.err"
+if [ $? -ne 0 ]; then
+	error_log "FAIL: --quiet mismatch full-file run failed"
+	test_fail
+fi
+if [ -s "$outdir/quiet-bid-full.err" ]; then
+	error_log "FAIL: --quiet mismatch full-file run printed to stderr: $(cat "$outdir/quiet-bid-full.err")"
+	test_fail
+fi
+info_log "--quiet keeps the build-ID mismatch quiet: ok"
 
 
 test_pass
