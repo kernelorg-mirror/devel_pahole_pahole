@@ -954,17 +954,18 @@ struct perf_dt_occ {
 };
 
 struct meminfo {
-	uint32_t		off;
-	uint32_t		size;
-	const char		*nm;
-	uint64_t		nr_reads;
-	uint64_t		nr_writes;
-	uint64_t		period_reads;
-	uint64_t		period_writes;
-	uint32_t		ci;
-	struct perf_dt_occ	*occ;
-	size_t			n_occ;
-	size_t			alloc_occ;
+	uint32_t			off;
+	uint32_t			size;
+	const char			*nm;
+	const struct class_member	*member;	/* to annotate it inline */
+	uint64_t			nr_reads;
+	uint64_t			nr_writes;
+	uint64_t			period_reads;
+	uint64_t			period_writes;
+	uint32_t			ci;
+	struct perf_dt_occ		*occ;
+	size_t				n_occ;
+	size_t				alloc_occ;
 };
 
 static void mi_add_occ(struct meminfo *m, uint64_t inst, uint32_t cpu,
@@ -1223,6 +1224,7 @@ struct perf_dt_class {
 	struct meminfo		*mi;
 	size_t			nmem;
 	uint64_t		unmatched;	/* samples that matched no member */
+	uint64_t		total;		/* samples matched to members */
 	size_t			nr_with_hits;
 	bool			has_per_sample;	/* CTF: timestamp/cpu/instance */
 	bool			unverified;	/* name+size match, no build ID */
@@ -1309,6 +1311,7 @@ struct perf_dt_class *perf_dt_class__new(struct class *class, const struct cu *c
 		pdc->mi[i].off = pos->byte_offset;
 		pdc->mi[i].size = pos->byte_size;
 		pdc->mi[i].nm = class_member__name(pos);
+		pdc->mi[i].member = pos;
 		i++;
 	}
 
@@ -1371,9 +1374,14 @@ struct perf_dt_class *perf_dt_class__new(struct class *class, const struct cu *c
 		}
 	}
 
-	for (i = 0; i < nmem; i++)
-		if (pdc->mi[i].nr_reads || pdc->mi[i].nr_writes)
+	for (i = 0; i < nmem; i++) {
+		uint64_t nr = pdc->mi[i].nr_reads + pdc->mi[i].nr_writes;
+
+		if (nr) {
 			pdc->nr_with_hits++;
+			pdc->total += nr;
+		}
+	}
 
 	/* Nothing landed on a member: not worth annotating, just warn. */
 	if (!pdc->nr_with_hits) {
@@ -1403,6 +1411,77 @@ void perf_dt_class__delete(struct perf_dt_class *pdc)
 		zfree(&pdc->mi[i].occ);
 	zfree(&pdc->mi);
 	zfree(&pdc);
+}
+
+static const struct meminfo *perf_dt_class__find_member(const struct perf_dt_class *pdc,
+							const struct class_member *member)
+{
+	for (size_t i = 0; i < pdc->nmem; i++)
+		if (pdc->mi[i].member == member)
+			return &pdc->mi[i];
+
+	return NULL;
+}
+
+/*
+ * The share of this type's accesses that went to one member: what tells a hot
+ * field apart from a cold one, and what the inline annotation shows.
+ */
+static double mi_pct(const struct perf_dt_class *pdc, const struct meminfo *m)
+{
+	if (!pdc->total)
+		return 0.0;
+
+	return 100.0 * (double)(m->nr_reads + m->nr_writes) / pdc->total;
+}
+
+/* Compact counts for the inline comment: 1234 -> "1.2K". */
+static size_t fprintf_nr(FILE *fp, uint64_t nr)
+{
+	if (nr >= 1000000000)
+		return fprintf(fp, "%.1fG", (double)nr / 1e9);
+	if (nr >= 1000000)
+		return fprintf(fp, "%.1fM", (double)nr / 1e6);
+	if (nr >= 1000)
+		return fprintf(fp, "%.1fK", (double)nr / 1e3);
+
+	return fprintf(fp, "%llu", (unsigned long long)nr);
+}
+
+/*
+ * Inline annotation, printed inside the member's offset comment, at its end,
+ * so that a hot field is spotted while browsing the struct and not just in the
+ * summary block at its end:
+ *
+ *	unsigned int               __state;   -- offset comment: 24 4 | 16.4% R:87.6K W:8.8K
+ *
+ * Members with no accesses print nothing: annotating every member of a struct
+ * the size of task_struct would bury the hot ones.
+ */
+size_t perf_dt_class__fprintf_member(FILE *fp, const struct perf_dt_class *pdc,
+				     const struct class_member *member)
+{
+	const struct meminfo *m;
+	size_t printed;
+
+	if (!pdc)
+		return 0;
+
+	m = perf_dt_class__find_member(pdc, member);
+	if (!m || (!m->nr_reads && !m->nr_writes))
+		return 0;
+
+	printed = fprintf(fp, " | %5.1f%%", mi_pct(pdc, m));
+	if (m->nr_reads) {
+		printed += fprintf(fp, " R:");
+		printed += fprintf_nr(fp, m->nr_reads);
+	}
+	if (m->nr_writes) {
+		printed += fprintf(fp, " W:");
+		printed += fprintf_nr(fp, m->nr_writes);
+	}
+
+	return printed;
 }
 
 size_t perf_dt_class__fprintf_block(FILE *fp, const struct perf_dt_class *pdc,

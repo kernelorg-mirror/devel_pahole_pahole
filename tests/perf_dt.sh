@@ -39,6 +39,8 @@
 # 19c. Well-formed JSON with the wrong shape -> exit 1, no OOB read
 # 20. --quiet suppresses the perf_dt annotations and their warnings
 # 20b. --quiet keeps the build-ID mismatch quiet as well
+# 21. The access counts also go inline, in each member's offset comment
+# 22. Members with no samples keep a plain offset comment
 # 27. The summary block prints only the cachelines that had hits, keeping
 #     the idle members of those cachelines as context
 
@@ -758,6 +760,36 @@ if grep -q "perf data-type profile" "$outdir/quiet.out"; then
 	test_fail
 fi
 info_log "--quiet keeps the perf_dt annotations and warnings quiet: ok"
+# --- Check 21: access counts go inline, in the member's offset comment ---
+# The summary block at the end of the struct is compact, but a task_struct is
+# 400+ lines long: by the time one gets to it, the members that were hit are
+# long scrolled past.  So the counts ride along in the offset comment, in the
+# same comment (not a second one), leaving the offsets where they always were.
+inline_output=$("$pahole_bin" -F btf --perf-data-type="$json_file" -C rb_node "$vmlinux" 2>/dev/null)
+if [ $? -ne 0 ]; then
+	error_log "FAIL: inline annotation run failed"
+	test_fail
+fi
+# __rb_parent_color: 50 loads + 10 stores of the 100 samples in the type.
+if ! echo "$inline_output" | grep "__rb_parent_color" |
+   grep -qE "/\* +0 +8 \| +60\.0% R:50 W:10 \*/"; then
+	error_log "FAIL: inline annotation for __rb_parent_color: $(echo "$inline_output" | grep __rb_parent_color)"
+	test_fail
+fi
+if ! echo "$inline_output" | grep "rb_right" |
+   grep -qE "/\* +8 +8 \| +40\.0% R:30 W:10 \*/"; then
+	error_log "FAIL: inline annotation for rb_right: $(echo "$inline_output" | grep rb_right)"
+	test_fail
+fi
+info_log "access counts annotated inline in the member offset comments: ok"
+
+# --- Check 22: members with no samples keep a plain offset comment ---
+if ! echo "$inline_output" | grep "rb_left" | grep -qE "/\* +16 +8 \*/"; then
+	error_log "FAIL: member without samples: $(echo "$inline_output" | grep rb_left)"
+	test_fail
+fi
+info_log "members with no samples keep a plain offset comment: ok"
+
 
 # --- Check 20b: --quiet keeps the build-ID mismatch quiet as well ---
 # The mismatch error goes through the print filter in a full-file run and

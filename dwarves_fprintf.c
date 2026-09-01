@@ -1085,7 +1085,9 @@ static size_t class_member__fprintf(struct class_member *member, bool union_memb
 				size_spacing -= 3;
 			}
 
-			printed += fprintf(fp, sconf.hex_fmt ?  " %#*x */" : " %*u */", size_spacing, size);
+			printed += fprintf(fp, sconf.hex_fmt ?  " %#*x" : " %*u", size_spacing, size);
+			printed += perf_dt_class__fprintf_member(fp, sconf.pdc, member);
+			printed += fprintf(fp, " */");
 		}
 	} else {
 		int spacing = sconf.type_spacing + sconf.name_spacing - printed;
@@ -1116,8 +1118,10 @@ static size_t class_member__fprintf(struct class_member *member, bool union_memb
 			}
 
 			printed += fprintf(fp, sconf.hex_fmt ?
-						" %#*x */" : " %*u */",
+						" %#*x" : " %*u",
 					   size_spacing, size);
+			printed += perf_dt_class__fprintf_member(fp, sconf.pdc, member);
+			printed += fprintf(fp, " */");
 		}
 	}
 	return printed + printed_cacheline;
@@ -1194,6 +1198,7 @@ static size_t union__fprintf(struct type *type, const struct cu *cu,
 	 */
 	if (perf_dt_profile__loaded() && uconf.emit_stats)
 		pdc = perf_dt_class__new(tag__class(&type->namespace.tag), cu);
+	uconf.pdc = pdc;
 
 	type__for_each_member(type, pos) {
 		struct tag *pos_type = cu__type(cu, pos->tag.type);
@@ -1737,6 +1742,7 @@ static size_t __class__fprintf(struct class *class, const struct cu *cu,
 	 */
 	if (perf_dt_profile__loaded() && cconf.emit_stats)
 		pdc = perf_dt_class__new(class, cu);
+	cconf.pdc = pdc;
 
 	if (class->pre_bit_hole > 0 && !cconf.suppress_comments) {
 		if (!newline++) {

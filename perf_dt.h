@@ -132,8 +132,10 @@ bool perf_dt_profile__class_has_hits(const char *name, const struct cu *cu,
 
 /*
  * The profile for one class: the profile entry it matched plus the accesses
- * aggregated onto its members.  Built once for a class being pretty printed
- * (perf_dt_class__new) and then consumed by perf_dt_class__fprintf_block().
+ * aggregated onto its members and the totals used to rank them.  Built once
+ * for a class being pretty printed (perf_dt_class__new) and then consumed
+ * twice: by the inline member annotations, while each member is printed, and
+ * by the summary block at the end of the struct.
  *
  * NULL when there is no profile, no entry for this class, or when not a
  * single sample matched one of its members, i.e. when there is nothing to
@@ -150,6 +152,15 @@ struct perf_dt_class;
 
 struct perf_dt_class *perf_dt_class__new(struct class *class, const struct cu *cu);
 void perf_dt_class__delete(struct perf_dt_class *pdc);
+
+/* Inline annotation: the accesses to this member, at the end of its offset
+ * comment (the same comment, not a second one), so that a hot field is
+ * spotted while browsing a big struct, not just in the summary block at its
+ * end.  Members with no accesses print nothing, and, riding in the offset
+ * comment, it goes away with --suppress_offset_comment (-q).
+ */
+size_t perf_dt_class__fprintf_member(FILE *fp, const struct perf_dt_class *pdc,
+				     const struct class_member *member);
 
 /* The summary block at the end of the struct: per-cacheline access counts
  * plus, with CTF per-sample data, false-sharing detection and cacheline-group
