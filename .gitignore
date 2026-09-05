@@ -4,3 +4,9 @@ tests/bin/*
 !tests/bin/test_bin.c
 !tests/bin/Makefile
 tests/.test-times
+
+# Release artifacts created in the source root: the tarballs produced by
+# scripts/make-tarball.sh, their signatures, and the announcement draft.
+/announce-v*.txt
+/dwarves-*.tar*
+/dwarves-*/
