@@ -1213,48 +1213,109 @@ static size_t fprintf_group_hints(FILE *fp, const struct meminfo *mi,
 	return printed;
 }
 
-size_t perf_dt_profile__fprintf_block(FILE *fp, struct class *class,
-				      const struct cu *cu, int indent)
+/*
+ * The profile for one class being pretty printed: kept around between the
+ * point where the accesses are aggregated onto the members and the point where
+ * the summary block at the end of the struct is emitted.
+ */
+struct perf_dt_class {
+	struct perf_dt_type	*dt;
+	struct meminfo		*mi;
+	size_t			nmem;
+	uint64_t		unmatched;	/* samples that matched no member */
+	size_t			nr_with_hits;
+	bool			has_per_sample;	/* CTF: timestamp/cpu/instance */
+	bool			unverified;	/* name+size match, no build ID */
+};
+
+static void perf_dt_class__warn_unmatched(const struct perf_dt_class *pdc,
+					  const char *suffix)
+{
+	struct perf_dt_type *dt = pdc->dt;
+
+	if (pdc->unmatched && !dt->warned_unmatched) {
+		fprintf(stderr,
+			"perf_dt: %s: %llu samples did not match any member%s\n",
+			dt->name, (unsigned long long)pdc->unmatched, suffix);
+		dt->warned_unmatched = true;
+	}
+}
+
+static void perf_dt_class__warn_size(const struct perf_dt_class *pdc,
+				     const struct class *class)
+{
+	struct perf_dt_type *dt = pdc->dt;
+
+	/*
+	 * The JSON "size" flags a vmlinux/DWARF mismatch: if the profiled
+	 * type size disagrees with the BTF/DWARF class size, the profile
+	 * was collected against a different kernel image.  Only warn once
+	 * per type (not per CU / per class__fprintf call) and only when we
+	 * are actually going to emit an annotation.
+	 */
+	if (dt->size && class__size(class) && dt->size != class__size(class) &&
+	    !dt->warned_size) {
+		fprintf(stderr,
+			"perf_dt: %s: JSON type size %u != vmlinux class size %u (vmlinux mismatch?)\n",
+			dt->name, dt->size, class__size(class));
+		dt->warned_size = true;
+	}
+
+	/*
+	 * Unverified: no build ID on either side to prove the profile
+	 * came from this binary, so name+size matching stands in.
+	 */
+	if (pdc->unverified && !dt->warned_bid) {
+		fprintf(stderr,
+			"perf_dt: %s: no build ID to verify the profile against this binary, matching by name+size (unverified)\n",
+			dt->name);
+		dt->warned_bid = true;
+	}
+}
+
+struct perf_dt_class *perf_dt_class__new(struct class *class, const struct cu *cu)
 {
 	struct perf_dt_profile *p = perf_dt_profile;
-	struct perf_dt_type *dt;
 	const char *name = class__name(class);
+	struct perf_dt_class *pdc;
 	struct class_member *pos;
-	size_t nmem = 0, i, printed = 0;
-	struct meminfo *mi;
-	uint64_t unmatched = 0;
-	bool has_per_sample = false;
-	bool unverified = false;
+	size_t nmem = 0, i;
+	uint32_t cln;
 
 	if (!p || !name)
-		return 0;
-	dt = profile__find_type_for_cu(p, name, cu, class__size(class),
-				       &unverified, true);
-	if (!dt)
-		return 0;
+		return NULL;
+
+	pdc = zalloc(sizeof(*pdc));
+	if (!pdc)
+		return NULL;
+
+	pdc->dt = profile__find_type_for_cu(p, name, cu, class__size(class),
+					    &pdc->unverified, true);
+	if (!pdc->dt)
+		goto out_delete;
 
 	type__for_each_member(&class->type, pos)
 		nmem++;
 	if (nmem == 0)
-		return 0;
-	mi = calloc(nmem, sizeof(*mi));
-	if (!mi)
-		return 0;
+		goto out_delete;
+
+	pdc->mi = zalloc(nmem * sizeof(*pdc->mi));
+	if (!pdc->mi)
+		goto out_delete;
+	pdc->nmem = nmem;
 
 	i = 0;
 	type__for_each_member(&class->type, pos) {
-		mi[i].off = pos->byte_offset;
-		mi[i].size = pos->byte_size;
-		mi[i].nm = class_member__name(pos);
+		pdc->mi[i].off = pos->byte_offset;
+		pdc->mi[i].size = pos->byte_size;
+		pdc->mi[i].nm = class_member__name(pos);
 		i++;
 	}
 
-	{
-		uint32_t cln = dt->cacheline_size ? dt->cacheline_size : 64;
+	cln = pdc->dt->cacheline_size ? pdc->dt->cacheline_size : 64;
 
-		for (i = 0; i < nmem; i++)
-			mi[i].ci = mi[i].off / cln;
-	}
+	for (i = 0; i < nmem; i++)
+		pdc->mi[i].ci = pdc->mi[i].off / cln;
 
 	/*
 	 * For a normal struct members don't overlap, so the first member whose
@@ -1272,27 +1333,27 @@ size_t perf_dt_profile__fprintf_block(FILE *fp, struct class *class,
 	bool is_union = tag__is_union(class__tag(class));
 
 	/* aggregate accesses onto members */
-	for (size_t a = 0; a < dt->nr_accesses; a++) {
-		const struct perf_dt_access *ax = &dt->accesses[a];
+	for (size_t a = 0; a < pdc->dt->nr_accesses; a++) {
+		const struct perf_dt_access *ax = &pdc->dt->accesses[a];
 		size_t match = nmem; /* no match */
 
 		if (ax->timestamp || ax->cpu || ax->instance)
-			has_per_sample = true;
+			pdc->has_per_sample = true;
 
 		for (i = 0; i < nmem; i++) {
-			if (ax->offset >= mi[i].off &&
-			    ax->offset < mi[i].off + mi[i].size) {
+			if (ax->offset >= pdc->mi[i].off &&
+			    ax->offset < pdc->mi[i].off + pdc->mi[i].size) {
 				if (!is_union) {
 					match = i;
 					break;
 				}
-				if (match == nmem || mi[i].size < mi[match].size)
+				if (match == nmem || pdc->mi[i].size < pdc->mi[match].size)
 					match = i;
 			}
 		}
 
 		if (match != nmem) {
-			struct meminfo *m = &mi[match];
+			struct meminfo *m = &pdc->mi[match];
 
 			if (ax->is_write) {
 				m->nr_writes += ax->nr;
@@ -1306,132 +1367,123 @@ size_t perf_dt_profile__fprintf_block(FILE *fp, struct class *class,
 					   ax->timestamp, false, ax->nr);
 			}
 		} else {
-			unmatched += ax->nr;
+			pdc->unmatched += ax->nr;
 		}
-	}
-
-	{
-		bool any_hot = false;
-		uint32_t cln = dt->cacheline_size ? dt->cacheline_size : 64;
-
-		for (i = 0; i < nmem; i++) {
-			if (mi[i].nr_reads || mi[i].nr_writes) {
-				any_hot = true;
-				break;
-			}
-		}
-		if (!any_hot) {
-			if (unmatched && !dt->warned_unmatched) {
-				fprintf(stderr,
-					"perf_dt: %s: %llu samples did not match any member (wrong vmlinux?)\n",
-					name, (unsigned long long)unmatched);
-				dt->warned_unmatched = true;
-			}
-			free(mi);
-			return 0;
-		}
-
-		/*
-		 * The JSON "size" flags a vmlinux/DWARF mismatch: if the profiled
-		 * type size disagrees with the BTF/DWARF class size, the profile
-		 * was collected against a different kernel image.  Only warn once
-		 * per type (not per CU / per class__fprintf call) and only when we
-		 * are actually going to emit an annotation.
-		 */
-		if (dt->size && class__size(class) &&
-		    dt->size != class__size(class) && !dt->warned_size) {
-			fprintf(stderr,
-				"perf_dt: %s: JSON type size %u != vmlinux class size %u (vmlinux mismatch?)\n",
-				name, dt->size, class__size(class));
-			dt->warned_size = true;
-		}
-
-		/*
-		 * Unverified: no build ID on either side to prove the profile
-		 * came from this binary, so name+size matching stands in.
-		 */
-		if (unverified && !dt->warned_bid) {
-			fprintf(stderr,
-				"perf_dt: %s: no build ID to verify the profile against this binary, matching by name+size (unverified)\n",
-				name);
-			dt->warned_bid = true;
-		}
-
-		/*
-		 * nr_reads/nr_writes count samples, not normalized events.
-		 * When loads use ldlat= filtering (e.g. ldlat=30), nr_reads
-		 * only counts loads exceeding that latency threshold, while
-		 * nr_writes counts all sampled stores.  period_reads and
-		 * period_writes estimate the underlying event count (making
-		 * different sampling periods comparable), but the ldlat
-		 * selection bias remains: L1 hits are absent from the data
-		 * entirely, regardless of period.
-		 */
-		printed += fprintf(fp, "\n%.*s/* perf data-type profile (cachelines of %u bytes,"
-				      " cachelines without hits omitted):",
-				  indent, tabs, cln);
-
-		/*
-		 * The members are in offset order, hence ci is non-decreasing and a
-		 * cacheline's members are contiguous in mi.  Only cachelines where at
-		 * least one member was accessed are printed: a compact summary of the
-		 * traffic, with the idle members of the printed cachelines kept as
-		 * context.  Cachelines with no hits can't have false sharing, as that
-		 * needs two members with accesses on the same cacheline, so skipping
-		 * them skips the check too.
-		 */
-		for (i = 0; i < nmem; ) {
-			uint32_t ci = mi[i].ci;
-			size_t j, start = i;
-			bool has_hits = false;
-
-			while (i < nmem && mi[i].ci == ci) {
-				if (mi[i].nr_reads || mi[i].nr_writes)
-					has_hits = true;
-				i++;
-			}
-
-			if (!has_hits)
-				continue;
-
-			printed += fprintf(fp, "\n%.*s   cacheline %u [%u-%u]:",
-					  indent, tabs, ci,
-					  ci * cln, ci * cln + cln - 1);
-
-			for (j = start; j < i; j++) {
-				printed += fprintf(fp, "\n%.*s     +%-4u %-28s sz=%-4u",
-						  indent, tabs, mi[j].off,
-						  mi[j].nm ?: "<anon>", mi[j].size);
-				if (mi[j].nr_reads)
-					printed += fprintf(fp, " nr_reads=%-5llu period_reads=%llu",
-							  (unsigned long long)mi[j].nr_reads,
-							  (unsigned long long)mi[j].period_reads);
-				if (mi[j].nr_writes)
-					printed += fprintf(fp, " nr_writes=%-5llu period_writes=%llu",
-							  (unsigned long long)mi[j].nr_writes,
-							  (unsigned long long)mi[j].period_writes);
-			}
-
-			printed += cacheline__fprintf_false_sharing(fp, mi, nmem, ci,
-								   indent, has_per_sample);
-		}
-
-		/* Cross-cacheline grouping hints require CTF per-sample data */
-		if (has_per_sample)
-			printed += fprintf_group_hints(fp, mi, nmem, indent);
-
-		printed += fprintf(fp, " */\n");
-	}
-
-	if (unmatched && !dt->warned_unmatched) {
-		fprintf(stderr,
-			"perf_dt: %s: %llu samples did not match any member\n",
-			name, (unsigned long long)unmatched);
-		dt->warned_unmatched = true;
 	}
 
 	for (i = 0; i < nmem; i++)
-		zfree(&mi[i].occ);
-	zfree(&mi);
+		if (pdc->mi[i].nr_reads || pdc->mi[i].nr_writes)
+			pdc->nr_with_hits++;
+
+	/* Nothing landed on a member: not worth annotating, just warn. */
+	if (!pdc->nr_with_hits) {
+		perf_dt_class__warn_unmatched(pdc, " (wrong vmlinux?)");
+		goto out_free_mi;
+	}
+
+	perf_dt_class__warn_size(pdc, class);
+
+	return pdc;
+
+out_free_mi:
+	for (i = 0; i < nmem; i++)
+		zfree(&pdc->mi[i].occ);
+	zfree(&pdc->mi);
+out_delete:
+	zfree(&pdc);
+	return NULL;
+}
+
+void perf_dt_class__delete(struct perf_dt_class *pdc)
+{
+	if (!pdc)
+		return;
+
+	for (size_t i = 0; i < pdc->nmem; i++)
+		zfree(&pdc->mi[i].occ);
+	zfree(&pdc->mi);
+	zfree(&pdc);
+}
+
+size_t perf_dt_class__fprintf_block(FILE *fp, const struct perf_dt_class *pdc,
+				    int indent)
+{
+	const struct meminfo *mi;
+	size_t nmem, i, printed = 0;
+	uint32_t cln;
+
+	if (!pdc)
+		return 0;
+
+	mi = pdc->mi;
+	nmem = pdc->nmem;
+	cln = pdc->dt->cacheline_size ? pdc->dt->cacheline_size : 64;
+
+	/*
+	 * nr_reads/nr_writes count samples, not normalized events.
+	 * When loads use ldlat= filtering (e.g. ldlat=30), nr_reads
+	 * only counts loads exceeding that latency threshold, while
+	 * nr_writes counts all sampled stores.  period_reads and
+	 * period_writes estimate the underlying event count (making
+	 * different sampling periods comparable), but the ldlat
+	 * selection bias remains: L1 hits are absent from the data
+	 * entirely, regardless of period.
+	 */
+	printed += fprintf(fp, "\n%.*s/* perf data-type profile (cachelines of %u bytes,"
+			      " cachelines without hits omitted):",
+			  indent, tabs, cln);
+
+	/*
+	 * The members are in offset order, hence ci is non-decreasing and a
+	 * cacheline's members are contiguous in mi.  Only cachelines where at
+	 * least one member was accessed are printed: a compact summary of the
+	 * traffic, with the idle members of the printed cachelines kept as
+	 * context.  Cachelines with no hits can't have false sharing, as that
+	 * needs two members with accesses on the same cacheline, so skipping
+	 * them skips the check too.
+	 */
+	for (i = 0; i < nmem; ) {
+		uint32_t ci = mi[i].ci;
+		size_t j, start = i;
+		bool has_hits = false;
+
+		while (i < nmem && mi[i].ci == ci) {
+			if (mi[i].nr_reads || mi[i].nr_writes)
+				has_hits = true;
+			i++;
+		}
+
+		if (!has_hits)
+			continue;
+
+		printed += fprintf(fp, "\n%.*s   cacheline %u [%u-%u]:",
+				   indent, tabs, ci, ci * cln, ci * cln + cln - 1);
+
+		for (j = start; j < i; j++) {
+			printed += fprintf(fp, "\n%.*s     +%-4u %-28s sz=%-4u",
+					  indent, tabs, mi[j].off,
+					  mi[j].nm ?: "<anon>", mi[j].size);
+			if (mi[j].nr_reads)
+				printed += fprintf(fp, " nr_reads=%-5llu period_reads=%llu",
+						  (unsigned long long)mi[j].nr_reads,
+						  (unsigned long long)mi[j].period_reads);
+			if (mi[j].nr_writes)
+				printed += fprintf(fp, " nr_writes=%-5llu period_writes=%llu",
+						  (unsigned long long)mi[j].nr_writes,
+						  (unsigned long long)mi[j].period_writes);
+		}
+
+		printed += cacheline__fprintf_false_sharing(fp, mi, nmem, ci,
+							   indent, pdc->has_per_sample);
+	}
+
+	/* Cross-cacheline grouping hints require CTF per-sample data */
+	if (pdc->has_per_sample)
+		printed += fprintf_group_hints(fp, mi, nmem, indent);
+
+	printed += fprintf(fp, " */\n");
+
+	perf_dt_class__warn_unmatched(pdc, "");
+
 	return printed;
 }

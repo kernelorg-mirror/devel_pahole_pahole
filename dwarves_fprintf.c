@@ -1144,6 +1144,7 @@ static size_t union__fprintf(struct type *type, const struct cu *cu,
 	size_t printed = 0;
 	int indent = conf->indent;
 	struct conf_fprintf uconf;
+	struct perf_dt_class *pdc = NULL;
 	uint32_t initial_union_cacheline;
 	uint32_t cacheline = 0; /* This will only be used if this is the outermost union */
 
@@ -1182,6 +1183,18 @@ static size_t union__fprintf(struct type *type, const struct cu *cu,
 	 * just the first of a multi struct union, for instance.
 	 */
 	initial_union_cacheline = *uconf.cachelinep;
+
+	/*
+	 * With a perf data-type profile loaded, gather this union's accesses
+	 * once, before the members are printed, as the struct path does, so
+	 * that they are available both for inline annotations and for the
+	 * summary block at the end.  Not when the stats comments are
+	 * suppressed: nothing perf_dt would print is, so the warnings that
+	 * gathering emits are quiet as well.
+	 */
+	if (perf_dt_profile__loaded() && uconf.emit_stats)
+		pdc = perf_dt_class__new(tag__class(&type->namespace.tag), cu);
+
 	type__for_each_member(type, pos) {
 		struct tag *pos_type = cu__type(cu, pos->tag.type);
 
@@ -1203,13 +1216,9 @@ static size_t union__fprintf(struct type *type, const struct cu *cu,
 	 * Unions with hits in the profile pass the print filter just like
 	 * structs, so they get the same annotation block, placed where the
 	 * struct's goes: at the end of the body, before the closing brace.
-	 * Skipped when the stats comments are suppressed, as in the struct
-	 * path.
 	 */
-	if (conf->emit_stats)
-		printed += perf_dt_profile__fprintf_block(fp,
-							  tag__class(&type->namespace.tag),
-							  cu, uconf.indent);
+	printed += perf_dt_class__fprintf_block(fp, pdc, uconf.indent);
+	perf_dt_class__delete(pdc);
 
 	return printed + fprintf(fp, "%.*s}%s%s", indent, tabs,
 				 conf->suffix ? " " : "", conf->suffix ?: "");
@@ -1660,6 +1669,7 @@ static size_t __class__fprintf(struct class *class, const struct cu *cu,
 	struct class_member *pos, *last = NULL;
 	struct tag *tag_pos;
 	const char *current_accessibility = NULL;
+	struct perf_dt_class *pdc = NULL;
 	struct conf_fprintf cconf = conf ? *conf : conf_fprintf__defaults;
 	const uint16_t t = type->namespace.tag.tag;
 	size_t printed = fprintf(fp, "%s%s%s%s%s",
@@ -1714,6 +1724,19 @@ static size_t __class__fprintf(struct class *class, const struct cu *cu,
 	}
 
 	printed += fprintf(fp, " {\n");
+
+	/*
+	 * With a perf data-type profile loaded, gather this class' accesses
+	 * once, right at the start, so that they are available both while the
+	 * members are printed and for the summary block at the end: NULL when
+	 * there is nothing to annotate, which is the case for every class when
+	 * no profile was loaded, so this costs one name lookup per class.
+	 * Not when the stats comments are suppressed, though: then nothing
+	 * perf_dt prints, and gathering here would emit its warnings with
+	 * no annotation to show for them.
+	 */
+	if (perf_dt_profile__loaded() && cconf.emit_stats)
+		pdc = perf_dt_class__new(class, cu);
 
 	if (class->pre_bit_hole > 0 && !cconf.suppress_comments) {
 		if (!newline++) {
@@ -2085,8 +2108,9 @@ next_member:
 				   cconf.indent, tabs,
 				   type->size, sum_bytes, sum_bits, sum_holes, sum_bit_holes, size_diff);
 
-	printed += perf_dt_profile__fprintf_block(fp, class, cu, cconf.indent);
+	printed += perf_dt_class__fprintf_block(fp, pdc, cconf.indent);
 out:
+	perf_dt_class__delete(pdc);
 	printed += fprintf(fp, "%.*s}", indent, tabs);
 
 	if (class->is_packed && !cconf.suppress_packed)

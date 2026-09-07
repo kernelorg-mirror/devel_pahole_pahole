@@ -530,11 +530,13 @@ static void print_classes(struct cu *cu)
 		 * structs that actually had profile hits, to make it easy to
 		 * find the structs worth looking at in a big vmlinux/BTF file.
 		 * --perf-data-type-show-all restores printing everything.
+		 * Under --quiet the build-ID mismatch stays quiet as well,
+		 * like the annotation path it gates.
 		 */
 		if (perf_dt_profile__loaded() && !perf_dt_show_all &&
 		    !perf_dt_profile__class_has_hits(class__name(pos), cu,
 						     class__size(pos),
-						     true))
+						     conf.emit_stats))
 			continue;
 		/*
 		 * FIXME: No sense in adding an anonymous struct to the list of

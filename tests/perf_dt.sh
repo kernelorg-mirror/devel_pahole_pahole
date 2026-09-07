@@ -37,6 +37,8 @@
 # 19. JSON whose top level is not an object -> exit 1
 # 19b. Empty profile (no types with hits) -> exit 1
 # 19c. Well-formed JSON with the wrong shape -> exit 1, no OOB read
+# 20. --quiet suppresses the perf_dt annotations and their warnings
+# 20b. --quiet keeps the build-ID mismatch quiet as well
 # 27. The summary block prints only the cachelines that had hits, keeping
 #     the idle members of those cachelines as context
 
@@ -737,6 +739,48 @@ for bad_shape in \
 	fi
 done
 info_log "wrong-shape JSON -> exit 1: ok"
+
+# --- Check 20: --quiet suppresses the perf_dt annotations and their warnings ---
+# With the stats comments suppressed nothing perf_dt prints, so the profile
+# gathering is skipped entirely and its warnings (unverified build ID,
+# unmatched offsets) stay quiet as well.
+"$pahole_bin" -F btf -q --perf-data-type="$json_file" -C rb_node "$vmlinux" > "$outdir/quiet.out" 2> "$outdir/quiet.err"
+if [ $? -ne 0 ]; then
+	error_log "FAIL: --quiet run with profile failed"
+	test_fail
+fi
+if [ -s "$outdir/quiet.err" ]; then
+	error_log "FAIL: --quiet run printed to stderr: $(cat "$outdir/quiet.err")"
+	test_fail
+fi
+if grep -q "perf data-type profile" "$outdir/quiet.out"; then
+	error_log "FAIL: --quiet run printed the perf_dt annotation block"
+	test_fail
+fi
+info_log "--quiet keeps the perf_dt annotations and warnings quiet: ok"
+
+# --- Check 20b: --quiet keeps the build-ID mismatch quiet as well ---
+# The mismatch error goes through the print filter in a full-file run and
+# through the annotation path with an explicit -C: both stay quiet.
+"$pahole_bin" -F btf -q --perf-data-type="$bidmismatch_json" -C rb_node "$vmlinux" > /dev/null 2> "$outdir/quiet-bid.err"
+if [ $? -ne 0 ]; then
+	error_log "FAIL: --quiet mismatch run with -C failed"
+	test_fail
+fi
+if [ -s "$outdir/quiet-bid.err" ]; then
+	error_log "FAIL: --quiet mismatch run with -C printed to stderr: $(cat "$outdir/quiet-bid.err")"
+	test_fail
+fi
+"$pahole_bin" -F btf -q --perf-data-type="$bidmismatch_json" "$vmlinux" > /dev/null 2> "$outdir/quiet-bid-full.err"
+if [ $? -ne 0 ]; then
+	error_log "FAIL: --quiet mismatch full-file run failed"
+	test_fail
+fi
+if [ -s "$outdir/quiet-bid-full.err" ]; then
+	error_log "FAIL: --quiet mismatch full-file run printed to stderr: $(cat "$outdir/quiet-bid-full.err")"
+	test_fail
+fi
+info_log "--quiet keeps the build-ID mismatch quiet: ok"
 
 # --- Check 27: the summary block prints only the cachelines that had hits ---
 # A task_struct spans ~160 cachelines and only a handful see traffic: lines

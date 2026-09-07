@@ -130,10 +130,14 @@ void perf_dt_set_group_window(uint64_t usec);
 bool perf_dt_profile__class_has_hits(const char *name, const struct cu *cu,
 				     uint32_t class_size, bool warn);
 
-/* Emit a cacheline-grouping annotation block for the given class, using the
- * loaded perf profile.  With JSON data: hot-field highlighting only.  With
- * CTF data: also false-sharing detection and cacheline-group suggestions.
- * Does nothing (returns 0) if there is no profile or the type has no samples.
+/*
+ * The profile for one class: the profile entry it matched plus the accesses
+ * aggregated onto its members.  Built once for a class being pretty printed
+ * (perf_dt_class__new) and then consumed by perf_dt_class__fprintf_block().
+ *
+ * NULL when there is no profile, no entry for this class, or when not a
+ * single sample matched one of its members, i.e. when there is nothing to
+ * annotate.
  *
  * The profile entry is matched by (DSO, name), verified via the build ID:
  * when both the entry's DSO and the cu carry one and they disagree, the
@@ -142,7 +146,16 @@ bool perf_dt_profile__class_has_hits(const char *name, const struct cu *cu,
  * but not the member layout).  A missing build ID on either side falls back
  * to name+size matching, warning once per type.
  */
-size_t perf_dt_profile__fprintf_block(FILE *fp, struct class *class,
-				      const struct cu *cu, int indent);
+struct perf_dt_class;
+
+struct perf_dt_class *perf_dt_class__new(struct class *class, const struct cu *cu);
+void perf_dt_class__delete(struct perf_dt_class *pdc);
+
+/* The summary block at the end of the struct: per-cacheline access counts
+ * plus, with CTF per-sample data, false-sharing detection and cacheline-group
+ * suggestions.  Does nothing (returns 0) for a NULL pdc.
+ */
+size_t perf_dt_class__fprintf_block(FILE *fp, const struct perf_dt_class *pdc,
+				    int indent);
 
 #endif /* _PERF_DT_H */
