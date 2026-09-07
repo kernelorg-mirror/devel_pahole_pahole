@@ -154,7 +154,7 @@ if (NOT LIBBPF_FOUND)
 				   ${CMAKE_CURRENT_SOURCE_DIR}/lib/bpf/include/uapi)
 endif()
 
-set(dwarves_LIB_SRCS dwarves.c dwarves_fprintf.c gobuffer.c
+set(dwarves_LIB_SRCS dwarves.c dwarves_fprintf.c perf_dt.c gobuffer.c
 		     ctf_loader.c libctf.c btf_encoder.c btf_loader.c
 		     dwarf_loader.c dutil.c elf_symtab.c rbtree.c)
 if (NOT LIBBPF_FOUND)

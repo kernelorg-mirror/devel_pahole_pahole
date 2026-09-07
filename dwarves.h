@@ -507,6 +507,11 @@ struct tag *cu__type(const struct cu *cu, const type_id_t id);
 struct tag *cu__find_struct_by_name(const struct cu *cu, const char *name,
 				    const int include_decls, type_id_t *id);
 bool cu__same_build_id(const struct cu *cu, const struct cu *other);
+/* Read the GNU build ID note from an ELF file into bf (at least
+ * BUILD_ID_SIZE bytes); returns the raw build ID length or a negative
+ * error when the file has none.
+ */
+int filename__read_build_id(const char *filename, void *bf, size_t size);
 void cu__account_inline_expansions(struct cu *cu);
 int cu__for_all_tags(struct cu *cu,
 		     int (*iterator)(struct tag *tag,

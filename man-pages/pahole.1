@@ -596,6 +596,44 @@ one wants to know what if the installed version has some feature, i.e.: 118 inst
 .B \-\-kabi_prefix=STRING
 When the prefix of the string is STRING, treat the string as STRING.
 
+.TP
+.B \-\-perf\-data\-type=FILE
+Annotate the structs being printed with the data type access profile in
+FILE, as collected by perf's data type profiling: from a JSON file
+produced by
+.B perf report \-\-data\-type\-json
+or
+.BR "perf annotate \-\-data\-type \-\-data\-type\-json" .
+The profile carries the build ID of the binary it was collected from, which
+is checked against the binary being analyzed: a mismatch skips that type's
+annotation with an error on stderr, a missing build ID on either side falls
+back to matching types by name and size, warned about once as unverified.
+.P
+By default just the structs that had hits in the profile are pretty printed,
+use \fB\-\-perf\-data\-type\-show\-all\fR to print all of them.
+
+.TP
+.B \-\-perf\-data\-type\-show\-all
+With \fB\-\-perf\-data\-type\fR, do not filter the pretty printed structs to
+just the ones with hits in the profile.
+
+.TP
+.B \-\-perf\-data\-type\-fs\-window=MICROSECONDS
+With \fB\-\-perf\-data\-type\fR on per\-sample data (a CTF trace), how far
+apart two accesses to different members of the same cacheline, from
+different CPUs and with at least one of them a write, can be and still be
+reported as false sharing.  A sample is a point in time, so this is what
+turns the two points into the window they interfere in: the default is 10
+microseconds, 0 asks for accesses carrying the same timestamp.
+
+.TP
+.B \-\-perf\-data\-type\-group\-window=MICROSECONDS
+With \fB\-\-perf\-data\-type\fR on per\-sample data (a CTF trace), how far
+apart two co\-accessed reads of members in different cachelines of the same
+instance can be and still be suggested as a cacheline group.  The default is
+1 microsecond, as members one code path walks together are that close, 0
+asks for accesses carrying the same timestamp.
+
 .SH NOTES
 
 To enable the generation of debugging information in the Linux kernel build

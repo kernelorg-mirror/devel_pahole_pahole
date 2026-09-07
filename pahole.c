@@ -29,6 +29,7 @@
 #include "dutil.h"
 //#include "ctf_encoder.h" FIXME: disabled, probably its better to move to Oracle's libctf
 #include "btf_encoder.h"
+#include "perf_dt.h"
 
 static struct btf_encoder *btf_encoder;
 static char *detached_btf_filename;
@@ -80,6 +81,7 @@ static bool defined_in;
 static bool just_unions;
 static bool just_structs;
 static bool just_packed_structs;
+static bool perf_dt_show_all;
 static int show_reorg_steps;
 static const char *class_name;
 static const char *enumerator_name;
@@ -522,6 +524,17 @@ static void print_classes(struct cu *cu)
 			continue;
 
 		if (!class__filter(pos, cu, id))
+			continue;
+		/*
+		 * With a perf data-type profile loaded, pretty print just the
+		 * structs that actually had profile hits, to make it easy to
+		 * find the structs worth looking at in a big vmlinux/BTF file.
+		 * --perf-data-type-show-all restores printing everything.
+		 */
+		if (perf_dt_profile__loaded() && !perf_dt_show_all &&
+		    !perf_dt_profile__class_has_hits(class__name(pos), cu,
+						     class__size(pos),
+						     true))
 			continue;
 		/*
 		 * FIXME: No sense in adding an anonymous struct to the list of
@@ -1157,6 +1170,10 @@ ARGP_PROGRAM_VERSION_HOOK_DEF = dwarves_print_version;
 #define ARGP_with_embedded_flexible_array 349
 #define ARGP_btf_attributes	   350
 #define ARGP_features		   351
+#define ARGP_perf_dt		   352
+#define ARGP_perf_dt_show_all	   353
+#define ARGP_perf_dt_fs_window	   354
+#define ARGP_perf_dt_group_window  355
 
 /* --btf_features=feature1[,feature2,..] allows us to specify
  * a list of requested BTF features or "default" to enable all default
@@ -1866,9 +1883,48 @@ static const struct argp_option pahole__options[] = {
 		.doc  = "Allow generation of attributes in BTF. Attributes are the type tags and decl tags with the kind_flag set to 1.",
 	},
 	{
+		.name = "perf-data-type",
+		.key  = ARGP_perf_dt,
+		.arg  = "FILE_OR_DIR",
+		.doc  = "Annotate members with a perf data-type profile (JSON file or CTF directory). "
+			"By default just the structs in the profile that actually had hits are pretty printed, "
+			"use --perf-data-type-show-all to print all the structs"
+	},
+	{
+		.name = "perf-data-type-show-all",
+		.key  = ARGP_perf_dt_show_all,
+		.doc  = "Do not filter structs to just the ones with hits in the perf data-type profile loaded with --perf-data-type"
+	},
+	{
+		.name = "perf-data-type-fs-window",
+		.key  = ARGP_perf_dt_fs_window,
+		.arg  = "MICROSECONDS",
+		.doc  = "With --perf-data-type on per-sample (CTF) data, how far apart accesses to different members of the same cacheline can be and still be reported as false sharing (default 10, 0 asks for the same timestamp)"
+	},
+	{
+		.name = "perf-data-type-group-window",
+		.key  = ARGP_perf_dt_group_window,
+		.arg  = "MICROSECONDS",
+		.doc  = "With --perf-data-type on per-sample (CTF) data, how far apart co-accessed reads of members in different cachelines can be and still be suggested as a cacheline group (default 1, 0 asks for the same timestamp)"
+	},
+	{
 		.name = NULL,
 	}
 };
+
+/* The --perf-data-type-*-window options take microseconds. */
+static uint64_t parse_window_usec(const char *arg, const char *opt)
+{
+	char *end;
+	uint64_t usec = strtoull(arg, &end, 0);
+
+	if (end == arg || *end != '\0') {
+		fprintf(stderr, "pahole: %s takes microseconds, not '%s'.\n", opt, arg);
+		exit(EXIT_FAILURE);
+	}
+
+	return usec;
+}
 
 static error_t pahole__options_parser(int key, char *arg,
 				      struct argp_state *state)
@@ -2063,6 +2119,21 @@ static error_t pahole__options_parser(int key, char *arg,
 		parse_btf_features(arg, true);		break;
 	case ARGP_btf_attributes:
 		conf_load.btf_attributes = true;	break;
+	case ARGP_perf_dt:
+		if (perf_dt_profile__load(arg)) {
+			fprintf(stderr, "pahole: failed to load perf data-type profile from '%s'.\n", arg);
+			exit(EXIT_FAILURE);
+		}
+		break;
+	case ARGP_perf_dt_show_all:
+		perf_dt_show_all = true;
+		break;
+	case ARGP_perf_dt_fs_window:
+		perf_dt_set_false_sharing_window(parse_window_usec(arg, "--perf-data-type-fs-window"));
+		break;
+	case ARGP_perf_dt_group_window:
+		perf_dt_set_group_window(parse_window_usec(arg, "--perf-data-type-group-window"));
+		break;
 	default:
 		return ARGP_ERR_UNKNOWN;
 	}

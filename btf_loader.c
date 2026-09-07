@@ -814,9 +814,20 @@ struct debug_fmt_ops btf__ops;
 static int cus__load_btf(struct cus *cus, struct conf_load *conf, const char *filename)
 {
 	int err = -1;
+	unsigned char build_id[64];
+	int build_id_len = filename__read_build_id(filename, build_id,
+						    sizeof(build_id));
+	struct cu *cu;
+
+	if (build_id_len < 0)
+		build_id_len = 0;
+	if (build_id_len > (int)sizeof(build_id))
+		build_id_len = sizeof(build_id);
 
 	// Pass a zero for addr_size, we'll get it after we load via btf__pointer_size()
-	struct cu *cu = cu__new(filename, 0, NULL, 0, filename, false);
+	cu = cu__new(filename, 0,
+		     build_id_len ? build_id : NULL, build_id_len,
+		     filename, false);
 	if (cu == NULL)
 		return -1;
 

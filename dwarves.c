@@ -2637,13 +2637,16 @@ out:
 	return err;
 }
 
-static int filename__read_build_id(const char *filename, void *bf, size_t size)
+int filename__read_build_id(const char *filename, void *bf, size_t size)
 {
 	int fd, err = -1;
 	Elf *elf;
 
 	if (size < BUILD_ID_SIZE)
 		goto out;
+
+	/* libelf requires this before any elf_* call; safe to repeat. */
+	elf_version(EV_CURRENT);
 
 	fd = open(filename, O_RDONLY);
 	if (fd < 0)

@@ -21,6 +21,7 @@
 
 #include "config.h"
 #include "dwarves.h"
+#include "perf_dt.h"
 
 static const char *dwarf_tag_names[] = {
 	[DW_TAG_array_type]		  = "array_type",
@@ -1198,6 +1199,18 @@ static size_t union__fprintf(struct type *type, const struct cu *cu,
 		*uconf.cachelinep = initial_union_cacheline;
 	}
 
+	/*
+	 * Unions with hits in the profile pass the print filter just like
+	 * structs, so they get the same annotation block, placed where the
+	 * struct's goes: at the end of the body, before the closing brace.
+	 * Skipped when the stats comments are suppressed, as in the struct
+	 * path.
+	 */
+	if (conf->emit_stats)
+		printed += perf_dt_profile__fprintf_block(fp,
+							  tag__class(&type->namespace.tag),
+							  cu, uconf.indent);
+
 	return printed + fprintf(fp, "%.*s}%s%s", indent, tabs,
 				 conf->suffix ? " " : "", conf->suffix ?: "");
 }
@@ -2071,6 +2084,8 @@ next_member:
 				   "+ %u (byte holes) + %u (bit holes), diff = %d bits */\n",
 				   cconf.indent, tabs,
 				   type->size, sum_bytes, sum_bits, sum_holes, sum_bit_holes, size_diff);
+
+	printed += perf_dt_profile__fprintf_block(fp, class, cu, cconf.indent);
 out:
 	printed += fprintf(fp, "%.*s}", indent, tabs);
 
